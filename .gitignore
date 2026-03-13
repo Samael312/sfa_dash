@@ -1,0 +1,28 @@
+
+# IDEs
+.vscode/
+.idea/
+
+# Recursos
+resources/
+
+# Ignorar entorno virtual y cache de Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+myenv/
+.myenv/
+env/
+.env
+
+# Ignorar datos temporales
+*.csv
+*.xlsx
+*.xlsx#
+.ipynb_checkpoints/
+
+frontend/.vite
+
+scripts/alarms_cron.log
