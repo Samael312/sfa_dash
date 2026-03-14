@@ -1,0 +1,30 @@
+/* frontend/src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reiniciamos el comportamiento por defecto para ocupar todo el espacio */
+:root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* Evita scroll lateral innecesario */
+  background-color: #f3f4f6; /* Un gris muy suave de fondo (bg-gray-100) */
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: block; 
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  /* Aseguramos que el div principal de React también se expanda */
+  display: flex;
+  flex-direction: column;
+}
