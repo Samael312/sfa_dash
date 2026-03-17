@@ -8,26 +8,19 @@ load_dotenv()
 # ==========================================
 MQTT_BROKER     = os.getenv("MQTT_BROKER", "autorack.proxy.rlwy.net")
 MQTT_PORT       = int(os.getenv("MQTT_PORT", 35512))
-
-# Prefijo base: universidad/jaen/{sensor_id}/{variable}
-# El bridge se suscribe con wildcards para capturar cualquier
-# sensor y cualquier variable dinámicamente.
 MQTT_TOPIC_BASE = os.getenv("MQTT_TOPIC_BASE", "universidad/jaen")
-MQTT_TOPIC_SUB  = f"{MQTT_TOPIC_BASE}/+/+"   # suscripción wildcard MQTT
+MQTT_TOPIC_SUB  = f"{MQTT_TOPIC_BASE}/+/+"
 
 # ==========================================
 # PostgreSQL — Railway
 # ==========================================
-PG_HOST     = os.getenv("PGHOST",     "YOUR_HOST.railway.app")
-PG_PORT     = int(os.getenv("PGPORT", 5432))
-PG_DATABASE = os.getenv("PGDATABASE", "railway")
-PG_USER     = os.getenv("PGUSER",     "postgres")
-PG_PASSWORD = os.getenv("PGPASSWORD", "YOUR_PASSWORD")
+DB_URL = os.getenv("DB_URL")
 
-DATABASE_URL = (
-    f"postgresql://{PG_USER}:{PG_PASSWORD}"
-    f"@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"
-)
+if not DB_URL:
+    raise RuntimeError(
+        "❌ DB_URL no está definida. "
+        "Añade DB_URL=postgresql://... a tu .env"
+    )
 
 # ==========================================
 # Variables SFA — metadatos compartidos

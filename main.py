@@ -2,25 +2,47 @@
 main.py
 -------
 API FastAPI del dashboard SFA.
-Lee de PostgreSQL (Railway) a través de api_client.py.
+
+Al arrancar (lifespan) lanza el mock SFA como tarea background:
+  - Genera datos simulados y los publica en MQTT cada 10 s
+  - Railway los recibe, los persiste en PostgreSQL
+  - Los endpoints leen de PostgreSQL vía api_client.py
 """
 
+import asyncio
+import os
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.logic.Sfa_mock import run_mock
 from app.api_client import get_latest, get_history, get_status, get_sensors
 
+SENSOR_ID = os.getenv("SENSOR_ID", "sensor1")
 
+
+# ==========================================
+# LIFESPAN
+# ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
+    mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
+    print(f"📡 Mock SFA arrancado para sensor '{SENSOR_ID}'")
     yield
+    mock_task.cancel()
+    try:
+        await mock_task
+    except asyncio.CancelledError:
+        pass
     print("🛑 Aplicación cerrada.")
 
 
+# ==========================================
+# APP
+# ==========================================
 app = FastAPI(
     title="Dashboard SFA — Universidad de Jaén",
     version="2.0.0",
@@ -35,6 +57,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ==========================================
+# ENDPOINTS
+# ==========================================
 
 @app.get("/internal/dashboard/sfa/sensors")
 def endpoint_sensors():
@@ -83,5 +109,8 @@ def endpoint_status(sensor_id: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==========================================
+# ENTRYPOINT
+# ==========================================
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

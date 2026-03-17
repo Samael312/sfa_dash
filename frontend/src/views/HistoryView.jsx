@@ -28,34 +28,48 @@ const chartOptions = {
   },
 };
 
-const HistoryView = () => {
-  const [history, setHistory] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [hours, setHours] = useState(24);
+const HistoryView = ({ sensorId = 'sensor1' }) => {
+  const [history, setHistory]   = useState({});
+  const [loading, setLoading]   = useState(true);
+  const [hours, setHours]       = useState(24);
+  const [error, setError]       = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const results = await Promise.all(
-      VARIABLES.map(v => api.getSFAHistory(v.key, hours))
-    );
-    const map = {};
-    VARIABLES.forEach((v, i) => { map[v.key] = results[i]?.points ?? []; });
-    setHistory(map);
-    setLoading(false);
-  }, [hours]);
+    setError(null);
+    try {
+      const results = await Promise.all(
+        VARIABLES.map(v => api.getSFAHistory(sensorId, v.key, hours))
+      );
+      const map = {};
+      VARIABLES.forEach((v, i) => { map[v.key] = results[i]?.points ?? []; });
+      setHistory(map);
+    } catch (e) {
+      setError('Error al cargar el historial. Comprueba la conexión.');
+    } finally {
+      setLoading(false);
+    }
+  }, [sensorId, hours]);
 
   useEffect(() => { load(); }, [load]);
 
   return (
     <div className="flex flex-col gap-6">
 
-      {/* Selector rango */}
-      <div className="bg-white px-5 py-4 rounded shadow border border-gray-200 flex items-center gap-4">
-        <span className="text-sm font-bold text-gray-700 uppercase">Rango temporal</span>
+      {/* Cabecera con sensor activo y selector de rango */}
+      <div className="bg-white px-5 py-4 rounded shadow border border-gray-200 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2 mr-4">
+          <span className="text-xs font-bold text-gray-400 uppercase">Sensor</span>
+          <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+            {sensorId}
+          </span>
+        </div>
+
+        <span className="text-sm font-bold text-gray-700 uppercase">Rango</span>
         {[
-          { label: '6 horas', value: 6 },
-          { label: '24 horas', value: 24 },
-          { label: '48 horas', value: 48 },
+          { label: '6 h',    value: 6   },
+          { label: '24 h',   value: 24  },
+          { label: '48 h',   value: 48  },
           { label: '7 días', value: 168 },
         ].map(opt => (
           <button
@@ -69,7 +83,22 @@ const HistoryView = () => {
             {opt.label}
           </button>
         ))}
+
+        <button
+          onClick={load}
+          className="ml-auto px-3 py-1.5 rounded text-sm font-medium border border-gray-300
+                     text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
+        >
+          ↻ Actualizar
+        </button>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
 
       {/* Gráficas */}
       {loading ? (
@@ -80,9 +109,13 @@ const HistoryView = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {VARIABLES.map(v => {
             const points = history[v.key] ?? [];
+            const isEmpty = points.length === 0;
+
             const chartData = {
               labels: points.map(p =>
-                new Date(p.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                new Date(p.timestamp).toLocaleTimeString('es-ES', {
+                  hour: '2-digit', minute: '2-digit'
+                })
               ),
               datasets: [{
                 label: `${v.label} (${v.unit})`,
@@ -95,14 +128,25 @@ const HistoryView = () => {
                 fill: true,
               }],
             };
+
             return (
               <div key={v.key} className="bg-white p-5 rounded shadow border border-gray-200">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: v.color }} />
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: v.color }}
+                  />
                   <span className="font-semibold text-gray-700 text-sm">{v.label}</span>
                   <span className="text-xs text-gray-400 ml-auto">{v.unit}</span>
                 </div>
-                <Line data={chartData} options={chartOptions} />
+
+                {isEmpty ? (
+                  <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+                    Sin datos en las últimas {hours} h
+                  </div>
+                ) : (
+                  <Line data={chartData} options={chartOptions} />
+                )}
               </div>
             );
           })}

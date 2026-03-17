@@ -1,26 +1,15 @@
-"""
-Sfa_mock.py
------------
-Generador de datos simulados SFA + publicador MQTT.
 
-Publica cada variable en su propio topic:
-    universidad/jaen/{sensor_id}/{variable}
-
-Arrancar con:
-    python Sfa_mock.py
-    python Sfa_mock.py --sensor sensor2   (sensor personalizado)
-"""
-
-import argparse
+import asyncio
 import json
 import math
 import random
-import time
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE, SFA_VARIABLES
+from app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE
+
+PUBLISH_INTERVAL = 10   
 
 # ==========================================
 # ESTADO INTERNO DEL SIMULADOR
@@ -46,10 +35,7 @@ def _t_amb(hour: float) -> float:
 
 
 def generate_readings() -> dict[str, float]:
-    """
-    Genera los valores de todas las variables SFA.
-    Devuelve {variable: valor} sin timestamp ni metadata.
-    """
+    """Genera los valores de todas las variables SFA."""
     now  = datetime.now(timezone.utc)
     hour = (now.hour + now.minute / 60.0 + 1) % 24
 
@@ -77,28 +63,30 @@ def generate_readings() -> dict[str, float]:
 
 
 # ==========================================
-# CALLBACKS MQTT
+# CLIENTE MQTT (compartido)
 # ==========================================
-def on_connect(client, userdata, flags, rc, properties=None):
-    if rc == 0:
-        print(f"✅ Conectado al broker {MQTT_BROKER}:{MQTT_PORT}")
-    else:
-        print(f"❌ Error de conexión MQTT: rc={rc}")
+def _build_client() -> mqtt.Client:
+    def on_connect(client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            print(f"✅ Mock MQTT conectado a {MQTT_BROKER}:{MQTT_PORT}")
+        else:
+            print(f"❌ Mock MQTT error de conexión: rc={rc}")
 
-
-def on_publish(client, userdata, mid, reason_code=None, properties=None):
-    pass   # silencioso; el loop principal ya imprime
-
-
-# ==========================================
-# BUCLE PRINCIPAL
-# ==========================================
-def main(sensor_id: str = "sensor1"):
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
-    client.on_publish = on_publish
+    return client
 
-    print(f"⏳ Conectando a {MQTT_BROKER}:{MQTT_PORT} como '{sensor_id}'…")
+
+# ==========================================
+# TAREA ASYNCIO — para usar desde main.py
+# ==========================================
+async def run_mock(sensor_id: str = "sensor1"):
+    """
+    Corrutina asyncio que publica datos simulados cada PUBLISH_INTERVAL segundos.
+    Llamar con asyncio.create_task(run_mock()) desde el lifespan de FastAPI.
+    """
+    client = _build_client()
+    print(f"⏳ Mock conectando a {MQTT_BROKER}:{MQTT_PORT} como '{sensor_id}'…")
     client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
     client.loop_start()
 
@@ -119,24 +107,26 @@ def main(sensor_id: str = "sensor1"):
                 client.publish(topic, payload, qos=1)
 
             print(
-                f"[{now.strftime('%H:%M:%S')}] {sensor_id} → "
+                f"[mock {now.strftime('%H:%M:%S')}] {sensor_id} → "
                 f"rad={readings['radiacion_solar']} W/m²  "
                 f"v_bat={readings['tension_bateria']} V  "
-                f"soc={round(_state['soc'] * 100, 1)} %  "
-                f"({len(readings)} topics)"
+                f"soc={round(_state['soc'] * 100, 1)} %"
             )
-            time.sleep(10)
+            await asyncio.sleep(PUBLISH_INTERVAL)
 
-    except KeyboardInterrupt:
-        print("\n🛑 Detenido.")
+    except asyncio.CancelledError:
+        print("🛑 Mock detenido.")
     finally:
         client.loop_stop()
         client.disconnect()
-        print("🔌 Desconectado.")
 
 
+# ==========================================
+# STANDALONE — python Sfa_mock.py
+# ==========================================
 if __name__ == "__main__":
+    import argparse
     parser = argparse.ArgumentParser(description="Simulador SFA — publicador MQTT")
-    parser.add_argument("--sensor", default="sensor1", help="ID del sensor (default: sensor1)")
+    parser.add_argument("--sensor", default="sensor1")
     args = parser.parse_args()
-    main(sensor_id=args.sensor)
+    asyncio.run(run_mock(sensor_id=args.sensor))
