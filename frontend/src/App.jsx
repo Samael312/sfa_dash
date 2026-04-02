@@ -18,7 +18,7 @@ import {
 import LatestView     from './views/LatestView';
 import StatusView     from './views/StatusView';
 import HistoryView    from './views/HistoryView';
-import AlertRulesView from './views/Alertrulesview'
+import AlertRulesView from './views/Alertrulesview';
 
 // ==========================================
 // COMPONENTE PRINCIPAL APP

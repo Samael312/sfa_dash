@@ -231,8 +231,8 @@ const AlertRulesView = ({ sensorId = 'sensor1' }) => {
                 className="border border-gray-300 rounded px-3 py-2 text-sm
                            focus:outline-none focus:border-blue-400"
               >
-                <option value="warning">⚠️ Warning</option>
-                <option value="critical">🔴 Critical</option>
+                <option value="warning">Warning</option>
+                <option value="critical">Critical</option>
               </select>
             </div>
 

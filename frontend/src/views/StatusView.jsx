@@ -159,7 +159,7 @@ const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
                              transition-colors"
                 >
                   <Settings2 size={14} />
-                  Gestionar umbrales
+                  Configurar umbrales
                 </button>
               )}
               <button
@@ -209,7 +209,14 @@ const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
                         : 'bg-orange-100 text-orange-600'}`}>
                       {VARIABLE_LABELS[a.variable] ?? a.variable}
                     </span>
-                    <span className={`text-xs opacity-60`}>
+                    
+                    {/* AQUÍ AGREGAMOS EL VALOR NUMÉRICO */}
+                    {/*}
+                    <span className="text-xs font-medium text-gray-600 border-l border-gray-300 pl-2">
+                      Valor: {typeof a.value === 'number' ? a.value.toFixed(2) : a.value}
+                    </span>
+                    */}
+                    <span className={`text-xs opacity-60 ml-2`}>
                       {new Date(a.timestamp).toLocaleDateString('es-ES', {
                         day: '2-digit', month: '2-digit', year: 'numeric'
                       })}

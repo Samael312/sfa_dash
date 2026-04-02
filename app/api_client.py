@@ -91,7 +91,7 @@ def get_status(sensor_id: str) -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT level, variable, message, timestamp
+                SELECT level, variable, message, timestamp, value
                 FROM sfa_alerts
                 WHERE sensor_id = %s
                   AND timestamp >= NOW() - INTERVAL '24 hours'
@@ -100,8 +100,14 @@ def get_status(sensor_id: str) -> dict:
             """, (sensor_id,))
             rows = cur.fetchall()
         alerts = [
-            {"level": lv, "variable": va, "message": msg, "timestamp": _fmt_ts(ts), "value": val}
-            for lv, va, msg, ts, val in rows
+            {
+                "level": lv, 
+                "variable": va, 
+                "message": msg, 
+                "timestamp": _fmt_ts(ts),
+                "value": val
+            }
+            for lv, va, msg, ts, val in rows 
         ]
     finally:
         release_conn(conn)
