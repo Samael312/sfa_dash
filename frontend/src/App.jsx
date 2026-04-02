@@ -11,20 +11,21 @@ import {
   Bell,
   Info,
   Power,
-  Library
+  Library,
+  Settings2
 } from 'lucide-react';
 
-import LatestView from './views/LatestView';
-import StatusView from './views/StatusView';
-import HistoryView from './views/HistoryView';
-
+import LatestView     from './views/LatestView';
+import StatusView     from './views/StatusView';
+import HistoryView    from './views/HistoryView';
+import AlertRulesView from './views/Alertrulesview'
 
 // ==========================================
 // COMPONENTE PRINCIPAL APP
 // ==========================================
 const App = () => {
   const [activeView, setActiveView] = useState('Latest'); 
-  const [openMenu, setOpenMenu] = useState(null); 
+  const [openMenu, setOpenMenu]     = useState(null); 
   const navRef = useRef(null);
 
   useEffect(() => {
@@ -39,10 +40,11 @@ const App = () => {
 
   const renderContent = () => {
     switch (activeView) {
-      case 'Latest': return <LatestView />;
-      case 'Status': return <StatusView />;
-      case 'History': return <HistoryView />;
-      default: return <LatestView />;
+      case 'Latest':      return <LatestView />;
+      case 'Status':      return <StatusView onNavigate={setActiveView} />;
+      case 'History':     return <HistoryView />;
+      case 'AlertRules':  return <AlertRulesView />;
+      default:            return <LatestView />;
     }
   };
 
@@ -51,7 +53,7 @@ const App = () => {
       title: 'Recientes',
       icon: <Wifi size={18} />,
       items: [
-        { label: 'Ultimos Datos', id: 'Latest', icon: <Radio size={16} /> },
+        { label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> },
       ]
     },
     {
@@ -68,14 +70,20 @@ const App = () => {
         { label: 'Historial', id: 'History', icon: <Info size={16} /> },
       ]
     },
+    {
+      title: 'Alertas',
+      icon: <Bell size={18} />,
+      items: [
+        { label: 'Configurar umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> },
+      ]
+    },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 flex flex-col w-full">
       
-      {/* ================= BARRA SUPERIOR (100% WIDTH) ================= */}
+      {/* ================= BARRA SUPERIOR ================= */}
       <nav ref={navRef} className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50 w-full">
-        {/* Eliminado max-w-7xl, ahora es w-full con padding lateral */}
         <div className="w-full px-6"> 
           <div className="flex justify-between h-16">
             
@@ -100,7 +108,6 @@ const App = () => {
                       <ChevronDown size={14} className={`ml-1 transition-transform duration-200 ${openMenu === index ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {/* DROPDOWN PANEL */}
                     {openMenu === index && (
                       <div className="absolute top-14 left-0 w-56 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
                         {menu.items.map((item) => (
@@ -126,30 +133,27 @@ const App = () => {
 
             {/* ZONA DERECHA */}
             <div className="flex items-center">
-               <span className="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200 flex items-center gap-2">
-                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                 SFA: Connected
-               </span>
+              <span className="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200 flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                SFA: Connected
+              </span>
             </div>
           </div>
         </div>
       </nav>
 
-      {/* ================= CONTENIDO PRINCIPAL (100% WIDTH) ================= */}
-      {/* Eliminado max-w-7xl y mx-auto. Añadido w-full y max-w-none */}
+      {/* ================= CONTENIDO PRINCIPAL ================= */}
       <main className="flex-1 w-full max-w-none px-6 py-6">
         
-        {/* Título Sección */}
         <div className="mb-6 border-b border-gray-200 pb-2">
-           <h2 className="text-2xl font-bold text-gray-800 capitalize flex items-center gap-2">
-             {menuStructure.flatMap(m => m.items).find(i => i.id === activeView)?.icon}
-             {menuStructure.flatMap(m => m.items).find(i => i.id === activeView)?.label || 'Dashboard'}
-           </h2>
+          <h2 className="text-2xl font-bold text-gray-800 capitalize flex items-center gap-2">
+            {menuStructure.flatMap(m => m.items).find(i => i.id === activeView)?.icon}
+            {menuStructure.flatMap(m => m.items).find(i => i.id === activeView)?.label || 'Dashboard'}
+          </h2>
         </div>
 
-        {/* Contenedor Vista */}
         <div className="w-full">
-             {renderContent()}
+          {renderContent()}
         </div>
 
       </main>
