@@ -94,6 +94,18 @@ export const api = {
     }
   },
 
+  getAlertsHistory: async (sensorId = 'sensor1', { page = 1, limit = 10 } = {}) => {
+  try {
+    const res = await axios.get(`${API_BASE}/alerts/history`, {
+      params: { sensor_id: sensorId, page, limit }
+    });
+    return res.data; // Se espera { alerts: [], total: X, pages: Y }
+  } catch (e) {
+    console.error(`Error fetching alerts history [${sensorId}]:`, e);
+    return { alerts: [], total: 0, pages: 1 };
+  }
+},
+
   // ==========================================
   // EVALUACIÓN Y GESTIÓN DE ALERTAS
   // ==========================================

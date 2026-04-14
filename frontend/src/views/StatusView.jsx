@@ -1,3 +1,5 @@
+import SOCChart from '../utils/SOChart';
+import SolarForecast from '../utils/SolarForecast';
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { Loader2, RefreshCw, Trash2, Settings2 } from 'lucide-react';
@@ -159,7 +161,7 @@ const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
                              transition-colors"
                 >
                   <Settings2 size={14} />
-                  Configurar umbrales
+                  Gestionar umbrales
                 </button>
               )}
               <button
@@ -209,14 +211,7 @@ const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
                         : 'bg-orange-100 text-orange-600'}`}>
                       {VARIABLE_LABELS[a.variable] ?? a.variable}
                     </span>
-                    
-                    {/* AQUÍ AGREGAMOS EL VALOR NUMÉRICO */}
-                    {/*}
-                    <span className="text-xs font-medium text-gray-600 border-l border-gray-300 pl-2">
-                      Valor: {typeof a.value === 'number' ? a.value.toFixed(2) : a.value}
-                    </span>
-                    */}
-                    <span className={`text-xs opacity-60 ml-2`}>
+                    <span className={`text-xs opacity-60`}>
                       {new Date(a.timestamp).toLocaleDateString('es-ES', {
                         day: '2-digit', month: '2-digit', year: 'numeric'
                       })}
@@ -245,8 +240,10 @@ const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
           )}
         </div>
       )}
-
+    {/* Gráfica SOC */}
+    <SOCChart sensorId={sensorId} hours={24} />
     </div>
+    
   );
 };
 

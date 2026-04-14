@@ -23,8 +23,8 @@ Funciones públicas:
 
 from datetime import datetime
 
-from app.config.db import get_conn, release_conn
-from app.config.settings import SFA_VARIABLES
+from backend.app.config.db import get_conn, release_conn
+from backend.app.config.settings import SFA_VARIABLES
 
 
 def _fmt_ts(ts) -> str:

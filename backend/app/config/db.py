@@ -7,7 +7,7 @@ Las tablas las crea y gestiona bridge.py en Railway.
 
 from psycopg2 import pool
 
-from app.config.settings import DB_URL
+from backend.app.config.settings import DB_URL
 
 _pool: pool.SimpleConnectionPool | None = None
 

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE
+from backend.app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE
 
 PUBLISH_INTERVAL = 10   
 

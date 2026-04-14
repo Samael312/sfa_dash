@@ -14,8 +14,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.logic.Sfa_mock import run_mock
-from app.api_client import (
+from backend.app.logic.Sfa_mock import run_mock
+from backend.app.api_client import (
     get_latest, get_history, get_status, get_sensors,
     get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule,
     evaluate_alerts, clear_alerts,

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../services/api';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 const VARIABLES = [
   { key: 'radiacion_solar',      label: 'Radiación solar',    unit: 'W/m²', color: 'border-yellow-400', text: 'text-yellow-600' },
@@ -12,15 +12,32 @@ const VARIABLES = [
   { key: 'temperatura_bateria',  label: 'Temp. batería',      unit: '°C',   color: 'border-orange-400', text: 'text-orange-600' },
 ];
 
+// Umbral mínimo de cambio para considerar tendencia (evita ruido)
+const TREND_THRESHOLD = 0.05;
+
+const TrendIcon = ({ current, previous }) => {
+  if (previous === null || previous === undefined) return null;
+  const delta = current - previous;
+  const pct   = previous !== 0 ? Math.abs(delta / previous) : Math.abs(delta);
+
+  if (pct < TREND_THRESHOLD) return <Minus size={14} className="text-gray-400" />;
+  if (delta > 0) return <TrendingUp  size={14} className="text-green-500" />;
+  return             <TrendingDown size={14} className="text-red-400" />;
+};
+
 const LatestView = ({ sensorId = 'sensor1' }) => {
   const [data, setData]       = useState(null);
+  const [prev, setPrev]       = useState(null);   // lectura anterior para tendencia
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const prevRef               = useRef(null);
 
   const load = async () => {
     setError(null);
     try {
       const res = await api.getSFALatest(sensorId);
+      setPrev(prevRef.current);
+      prevRef.current = res;
       setData(res);
     } catch (e) {
       setError('Error al cargar los datos. Comprueba la conexión.');
@@ -30,6 +47,8 @@ const LatestView = ({ sensorId = 'sensor1' }) => {
   };
 
   useEffect(() => {
+    prevRef.current = null;
+    setPrev(null);
     setLoading(true);
     load();
     const interval = setInterval(load, 10000);
@@ -73,21 +92,36 @@ const LatestView = ({ sensorId = 'sensor1' }) => {
         </div>
       )}
 
-      {/* KPI cards */}
+      {/* KPI cards con tendencia */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        {VARIABLES.map(v => (
-          <div key={v.key} className={`bg-white p-5 rounded shadow border-l-4 ${v.color}`}>
-            <span className="text-gray-500 text-xs font-bold uppercase leading-tight block">
-              {v.label}
-            </span>
-            <div className="mt-3 flex items-end gap-1">
-              <span className={`text-3xl font-bold ${v.text}`}>
-                {data?.[v.key] ?? '—'}
+        {VARIABLES.map(v => {
+          const current  = data?.[v.key];
+          const previous = prev?.[v.key];
+
+          return (
+            <div key={v.key} className={`bg-white p-5 rounded shadow border-l-4 ${v.color}`}>
+              <span className="text-gray-500 text-xs font-bold uppercase leading-tight block">
+                {v.label}
               </span>
-              <span className="text-sm text-gray-400 mb-1">{v.unit}</span>
+              <div className="mt-3 flex items-end gap-1">
+                <span className={`text-3xl font-bold ${v.text}`}>
+                  {current ?? '—'}
+                </span>
+                <span className="text-sm text-gray-400 mb-1">{v.unit}</span>
+              </div>
+              {/* Indicador de tendencia */}
+              <div className="mt-2 flex items-center gap-1">
+                <TrendIcon current={current} previous={previous} />
+                {previous !== null && previous !== undefined && (
+                  <span className="text-xs text-gray-400">
+                    {current > previous ? '+' : ''}
+                    {(current - previous).toFixed(2)} {v.unit}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Tabla resumen */}
@@ -100,19 +134,35 @@ const LatestView = ({ sensorId = 'sensor1' }) => {
             <tr>
               <th className="px-6 py-3 text-left">Variable</th>
               <th className="px-6 py-3 text-right">Valor</th>
+              <th className="px-6 py-3 text-right">Tendencia</th>
               <th className="px-6 py-3 text-right">Unidad</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {VARIABLES.map(v => (
-              <tr key={v.key} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-3 font-medium text-gray-700">{v.label}</td>
-                <td className={`px-6 py-3 text-right font-bold ${v.text}`}>
-                  {data?.[v.key] ?? '—'}
-                </td>
-                <td className="px-6 py-3 text-right text-gray-400">{v.unit}</td>
-              </tr>
-            ))}
+            {VARIABLES.map(v => {
+              const current  = data?.[v.key];
+              const previous = prev?.[v.key];
+              return (
+                <tr key={v.key} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-3 font-medium text-gray-700">{v.label}</td>
+                  <td className={`px-6 py-3 text-right font-bold ${v.text}`}>
+                    {current ?? '—'}
+                  </td>
+                  <td className="px-6 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <TrendIcon current={current} previous={previous} />
+                      {previous !== null && previous !== undefined && (
+                        <span className="text-xs text-gray-400">
+                          {current > previous ? '+' : ''}
+                          {(current - previous).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-3 text-right text-gray-400">{v.unit}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
