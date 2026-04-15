@@ -91,14 +91,14 @@ class AlertRuleUpdate(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
-    #mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
+    mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
     print(f"📡 Mock SFA arrancado para sensor '{SENSOR_ID}'")
     yield
-    #mock_task.cancel()
-    #try:
-    #     await mock_task
-    #except asyncio.CancelledError:
-    #    pass
+    mock_task.cancel()
+    try:
+         await mock_task
+    except asyncio.CancelledError:
+        pass
     print("🛑 Aplicación cerrada.")
 
 
@@ -113,10 +113,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:5173"], # Solo tu frontend
+    allow_credentials=True,                  # Necesario para enviar cookies/headers auth
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"], # Asegura permitir el header Authorization
 )
 
 app.add_middleware(JWTAuthMiddleware)
