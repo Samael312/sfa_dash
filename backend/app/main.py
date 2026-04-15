@@ -1,7 +1,7 @@
 """
 main.py
 -------
-API FastAPI del dashboard SFA.
+API FastAPI del dashboard SFA — con autenticación JWT.
 """
 
 import asyncio
@@ -9,14 +9,14 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi.responses import JSONResponse
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.auth import decode_token
 
+from app.auth import decode_token
 from app.logic.Sfa_mock import run_mock
 from app.api_client import (
     get_latest, get_history, get_status, get_sensors,
@@ -27,6 +27,7 @@ from app.routes.auth_routes import router as auth_router
 
 SENSOR_ID = os.getenv("SENSOR_ID", "sensor1")
 
+
 # ==========================================
 # MIDDLEWARE DE AUTENTICACIÓN
 # ==========================================
@@ -35,10 +36,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     Protege todas las rutas /internal/dashboard/sfa/*
     Las rutas de auth (/internal/dashboard/auth/*) son públicas.
     """
- 
+
     async def dispatch(self, request: Request, call_next):
+        # Dejar pasar siempre el preflight CORS (OPTIONS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
- 
+
         # Rutas públicas: auth + docs
         if (
             path.startswith("/internal/dashboard/auth")
@@ -47,7 +52,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             or path.startswith("/redoc")
         ):
             return await call_next(request)
- 
+
         # Proteger rutas SFA
         if path.startswith("/internal/dashboard/sfa"):
             auth_header = request.headers.get("Authorization", "")
@@ -65,16 +70,17 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 )
             # Adjuntar usuario a la request (opcional, para logs)
             request.state.user = payload
- 
+
         return await call_next(request)
-    
+
+
 # ==========================================
 # SCHEMAS
 # ==========================================
 class AlertRuleCreate(BaseModel):
     sensor_id: str
     variable:  str
-    operator:  str        # '<=' | '>='
+    operator:  str
     threshold: float
     level:     str = "warning"
     message:   str
@@ -96,7 +102,7 @@ async def lifespan(app: FastAPI):
     yield
     mock_task.cancel()
     try:
-         await mock_task
+        await mock_task
     except asyncio.CancelledError:
         pass
     print("🛑 Aplicación cerrada.")
@@ -107,23 +113,25 @@ async def lifespan(app: FastAPI):
 # ==========================================
 app = FastAPI(
     title="Dashboard SFA — Universidad de Jaén",
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
+# El orden importa: el último add_middleware es el más externo (corre primero).
+# JWT se registra primero → CORS se registra segundo → CORS corre primero → resuelve OPTIONS.
+app.add_middleware(JWTAuthMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"], # Solo tu frontend
-    allow_credentials=True,                  # Necesario para enviar cookies/headers auth
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"], # Asegura permitir el header Authorization
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-app.add_middleware(JWTAuthMiddleware)
- 
 # Registrar rutas de auth
 app.include_router(auth_router)
- 
+
 BASE = "/internal/dashboard/sfa"
 
 
@@ -182,7 +190,6 @@ def endpoint_status(sensor_id: str = Query(...)):
 # ==========================================
 @app.get(f"{BASE}/alert-rules")
 def endpoint_get_rules(sensor_id: str = Query(...)):
-    """Lista todas las reglas de alerta de un sensor."""
     try:
         return {"sensor_id": sensor_id, "rules": get_alert_rules(sensor_id)}
     except Exception as e:
@@ -191,7 +198,6 @@ def endpoint_get_rules(sensor_id: str = Query(...)):
 
 @app.post(f"{BASE}/alert-rules", status_code=201)
 def endpoint_create_rule(body: AlertRuleCreate):
-    """Crea una nueva regla de alerta."""
     try:
         rule = create_alert_rule(
             body.sensor_id, body.variable, body.operator,
@@ -206,7 +212,6 @@ def endpoint_create_rule(body: AlertRuleCreate):
 
 @app.put(f"{BASE}/alert-rules/{{rule_id}}")
 def endpoint_update_rule(rule_id: int, body: AlertRuleUpdate):
-    """Actualiza threshold, level y message de una regla."""
     try:
         rule = update_alert_rule(rule_id, body.threshold, body.level, body.message)
         return rule
@@ -218,7 +223,6 @@ def endpoint_update_rule(rule_id: int, body: AlertRuleUpdate):
 
 @app.delete(f"{BASE}/alert-rules/{{rule_id}}")
 def endpoint_delete_rule(rule_id: int):
-    """Elimina una regla de alerta por id."""
     try:
         deleted = delete_alert_rule(rule_id)
         if not deleted:
@@ -235,11 +239,6 @@ def endpoint_delete_rule(rule_id: int):
 # ==========================================
 @app.get(f"{BASE}/alerts/evaluate")
 def endpoint_evaluate_alerts(sensor_id: str = Query(...)):
-    """
-    Compara la última lectura del sensor contra las reglas de alert_rules
-    y escribe en sfa_alerts las que disparen.
-    Devuelve las alertas nuevas generadas en esta evaluación.
-    """
     try:
         triggered = evaluate_alerts(sensor_id)
         return {
@@ -256,7 +255,6 @@ def endpoint_evaluate_alerts(sensor_id: str = Query(...)):
 
 @app.delete(f"{BASE}/alerts")
 def endpoint_clear_alerts(sensor_id: str = Query(...)):
-    """Elimina todas las alertas de sfa_alerts para el sensor indicado."""
     try:
         deleted = clear_alerts(sensor_id)
         return {"sensor_id": sensor_id, "deleted": deleted, "message": f"{deleted} alerta(s) eliminadas."}
