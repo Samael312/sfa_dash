@@ -14,6 +14,7 @@ import {
   Library,
   Settings2,
   LogOut,
+  Sun,
   UserCircle2,
 } from 'lucide-react';
 
@@ -24,6 +25,7 @@ import AlertRulesView   from './views/Alertrulesview';
 import LoginView        from './views/LoginView';
 import RegisterView     from './views/RegisterView';
 import ForgotPasswordView from './views/ForgotPasswordView';
+import WeatherView from './views/WeatherView';
 
 // ==========================================
 // HELPERS DE SESIÓN
@@ -106,6 +108,7 @@ const App = () => {
       case 'Status':     return <StatusView onNavigate={setActiveView} />;
       case 'History':    return <HistoryView />;
       case 'AlertRules': return <AlertRulesView />;
+      case 'Weather':    return <WeatherView />;
       default:           return <LatestView />;
     }
   };
@@ -139,6 +142,13 @@ const App = () => {
         { label: 'Configurar umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> },
       ]
     },
+    {
+      title: 'Clima',
+      icon: <Sun size={18} />,
+      items: [
+        { label: 'Predicción del tiempo', id: 'Weather', icon: <Sun size={16} /> },
+      ]
+    }
   ];
 
   return (
