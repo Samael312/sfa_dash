@@ -129,4 +129,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simulador SFA — publicador MQTT")
     parser.add_argument("--sensor", default="sensor1")
     args = parser.parse_args()
-    asyncio.run(run_mock(sensor_id=args.sensor))
+    #asyncio.run(run_mock(sensor_id=args.sensor))
