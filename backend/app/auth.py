@@ -15,7 +15,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = os.getenv("SECRET_KEY", "sfa-dashboard-dev-secret-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY", "akssak-ak23j4h5k6l7m8n9o0p1q2r3s4t5u6v7w8x9y0z")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 

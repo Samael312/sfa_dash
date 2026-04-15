@@ -16,9 +16,10 @@ Migración SQL necesaria (ejecutar una sola vez):
 ─────────────────────────────────────────────────
 
 Asegúrate de que la tabla users tiene al menos:
-  id SERIAL PRIMARY KEY
-  email VARCHAR(255) UNIQUE NOT NULL
-  name  VARCHAR(255) NOT NULL
+  id SERIAL     PRIMARY KEY
+  username      VARCHAR(255) UNIQUE NOT NULL
+  email         VARCHAR(255) UNIQUE NOT NULL
+  username          VARCHAR(255) NOT NULL
   password_hash VARCHAR(255) NOT NULL
 """
 
@@ -42,12 +43,12 @@ router = APIRouter(prefix="/internal/dashboard/auth", tags=["auth"])
 # SCHEMAS
 # ==========================================
 class LoginBody(BaseModel):
-    email: str
+    username: str
     password: str
 
 
 class RegisterBody(BaseModel):
-    name: str
+    username: str
     email: str
     password: str
 
@@ -71,7 +72,7 @@ def endpoint_login(body: LoginBody):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, email, name, password_hash FROM users WHERE email = %s",
+                "SELECT id, email, username, password_hash FROM users WHERE email = %s",
                 (body.email.lower().strip(),),
             )
             row = cur.fetchone()
@@ -81,8 +82,8 @@ def endpoint_login(body: LoginBody):
     if not row or not verify_password(body.password, row[3]):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
 
-    token = create_access_token({"sub": str(row[0]), "email": row[1], "name": row[2]})
-    return {"access_token": token, "token_type": "bearer", "name": row[2], "email": row[1]}
+    token = create_access_token({"sub": str(row[0]), "email": row[1], "username": row[2]})
+    return {"access_token": token, "token_type": "bearer", "username": row[2], "email": row[1]}
 
 
 @router.post("/register", status_code=201)
@@ -92,8 +93,8 @@ def endpoint_register(body: RegisterBody):
         raise HTTPException(
             status_code=422, detail="La contraseña debe tener al menos 6 caracteres."
         )
-    if not body.name.strip():
-        raise HTTPException(status_code=422, detail="El nombre no puede estar vacío.")
+    if not body.username.strip():
+        raise HTTPException(status_code=422, detail="El nombre de usuario no puede estar vacío.")
 
     conn = get_conn()
     try:
@@ -109,8 +110,8 @@ def endpoint_register(body: RegisterBody):
 
             hashed = hash_password(body.password)
             cur.execute(
-                "INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s) RETURNING id",
-                (body.email.lower().strip(), body.name.strip(), hashed),
+                "INSERT INTO users (email, username, password_hash) VALUES (%s, %s, %s) RETURNING id",
+                (body.email.lower().strip(), body.username.strip(), hashed),
             )
             user_id = cur.fetchone()[0]
         conn.commit()
@@ -123,12 +124,12 @@ def endpoint_register(body: RegisterBody):
         release_conn(conn)
 
     token = create_access_token(
-        {"sub": str(user_id), "email": body.email.lower().strip(), "name": body.name.strip()}
+        {"sub": str(user_id), "email": body.email.lower().strip(), "username": body.username.strip()}
     )
     return {
         "access_token": token,
         "token_type": "bearer",
-        "name": body.name.strip(),
+        "username": body.username.strip(),
         "email": body.email.lower().strip(),
     }
 

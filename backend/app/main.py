@@ -9,21 +9,65 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
+from fastapi.responses import JSONResponse
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.auth import decode_token
 
-from backend.app.logic.Sfa_mock import run_mock
-from backend.app.api_client import (
+from app.logic.Sfa_mock import run_mock
+from app.api_client import (
     get_latest, get_history, get_status, get_sensors,
     get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule,
     evaluate_alerts, clear_alerts,
 )
+from app.routes.auth_routes import router as auth_router
 
 SENSOR_ID = os.getenv("SENSOR_ID", "sensor1")
 
-
+# ==========================================
+# MIDDLEWARE DE AUTENTICACIÓN
+# ==========================================
+class JWTAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Protege todas las rutas /internal/dashboard/sfa/*
+    Las rutas de auth (/internal/dashboard/auth/*) son públicas.
+    """
+ 
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+ 
+        # Rutas públicas: auth + docs
+        if (
+            path.startswith("/internal/dashboard/auth")
+            or path.startswith("/docs")
+            or path.startswith("/openapi")
+            or path.startswith("/redoc")
+        ):
+            return await call_next(request)
+ 
+        # Proteger rutas SFA
+        if path.startswith("/internal/dashboard/sfa"):
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "No autenticado. Inicia sesión para acceder."},
+                )
+            token = auth_header.split(" ", 1)[1]
+            payload = decode_token(token)
+            if not payload:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Token inválido o expirado. Inicia sesión de nuevo."},
+                )
+            # Adjuntar usuario a la request (opcional, para logs)
+            request.state.user = payload
+ 
+        return await call_next(request)
+    
 # ==========================================
 # SCHEMAS
 # ==========================================
@@ -47,14 +91,14 @@ class AlertRuleUpdate(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
-    mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
+    #mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
     print(f"📡 Mock SFA arrancado para sensor '{SENSOR_ID}'")
     yield
-    mock_task.cancel()
-    try:
-        await mock_task
-    except asyncio.CancelledError:
-        pass
+    #mock_task.cancel()
+    #try:
+    #     await mock_task
+    #except asyncio.CancelledError:
+    #    pass
     print("🛑 Aplicación cerrada.")
 
 
@@ -75,6 +119,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(JWTAuthMiddleware)
+ 
+# Registrar rutas de auth
+app.include_router(auth_router)
+ 
 BASE = "/internal/dashboard/sfa"
 
 

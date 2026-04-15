@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from backend.app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE
+from app.config.settings import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE
 
 PUBLISH_INTERVAL = 10   
 
@@ -129,4 +129,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simulador SFA — publicador MQTT")
     parser.add_argument("--sensor", default="sensor1")
     args = parser.parse_args()
-    asyncio.run(run_mock(sensor_id=args.sensor))
+    #asyncio.run(run_mock(sensor_id=args.sensor))
