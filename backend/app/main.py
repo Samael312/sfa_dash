@@ -24,6 +24,7 @@ from app.api_client import (
 )
 from app.routes.auth_routes import router as auth_router
 
+
 SENSOR_ID = os.getenv("SENSOR_ID", "sensor1")
 
 
@@ -96,14 +97,14 @@ class AlertRuleUpdate(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
-    mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
+    #mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
     print(f"📡 Mock SFA arrancado para sensor '{SENSOR_ID}'")
     yield
-    mock_task.cancel()
-    try:
-        await mock_task
-    except asyncio.CancelledError:
-        pass
+    #mock_task.cancel()
+    #try:
+    #    await mock_task
+    #except asyncio.CancelledError:
+    #    pass
     print("🛑 Aplicación cerrada.")
 
 
