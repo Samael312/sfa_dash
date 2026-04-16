@@ -4,24 +4,23 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+
+# La URL del backend se inyecta en build time
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 RUN npm run build
 
-# Etapa 2: Producción con Nginx
+# Etapa 2: Nginx
 FROM nginx:stable-alpine
+
+# Instalar gettext para envsubst
+RUN apk add --no-cache gettext
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Creamos el directorio de templates de Nginx
-RUN mkdir -p /etc/nginx/templates
+# Plantilla de configuración de Nginx
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
-# Creamos la plantilla. Nginx sustituirá ${PORT} automáticamente al arrancar.
-RUN echo 'server { \
-    listen ${PORT}; \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/templates/default.conf.template
-
-# La imagen base de nginx ya tiene su propio CMD de arranque que ejecuta la sustitución
+# Script de arranque que sustituye $PORT y lanza nginx
+CMD ["sh", "-c", "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
