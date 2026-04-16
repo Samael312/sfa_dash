@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-const API_BASE = window.location.hostname === 'localhost' 
-  ? 'http://localhost:8000/internal/dashboard/sfa' 
-  : '/internal/dashboard/sfa';
-const AUTH_BASE = 'http://localhost:8000/internal/dashboard/auth';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+const API_BASE = `${BASE_URL}/internal/dashboard/sfa`;
+const AUTH_BASE = `${BASE_URL}/internal/dashboard/auth`;
 
 // ==========================================
 // INSTANCIA AUTENTICADA

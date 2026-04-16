@@ -98,7 +98,7 @@ class AlertRuleUpdate(BaseModel):
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
     #mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
-    print(f"📡 Mock SFA arrancado para sensor '{SENSOR_ID}'")
+    print(f"📡 SFA arrancado para sensor '{SENSOR_ID}'")
     yield
     #mock_task.cancel()
     #try:
@@ -122,8 +122,11 @@ app.add_middleware(JWTAuthMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://striking-insight-production-e7b4.up.railway.app"
+    ],
+    allow_credentials= True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
