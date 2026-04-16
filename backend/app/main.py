@@ -122,10 +122,7 @@ app.add_middleware(JWTAuthMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://striking-insight-production-e7b4.up.railway.app"
-    ],
+    allow_origins=["*"],
     allow_credentials= True,
     allow_methods=["*"],
     allow_headers=["*"],

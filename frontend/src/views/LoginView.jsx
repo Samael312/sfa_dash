@@ -1,26 +1,26 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { LayoutDashboard, Loader2, User, Lock, Eye, EyeOff } from 'lucide-react';
 import { api } from '../services/api';
 
 const LoginView = ({ onLogin, onRegister, onForgot }) => {
-  const [email, setEmail]       = useState('');
+  const [username, setusername]       = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd]   = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
 
   const handleSubmit = async () => {
-    if (!email.trim() || !password) {
+    if (!username.trim() || !password) {
       setError('Rellena todos los campos.');
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.login(email.trim(), password);
+      const res = await api.login(username.trim(), password);
       localStorage.setItem('sfa_token', res.access_token);
-      localStorage.setItem('sfa_user', JSON.stringify({ name: res.name, email: res.email }));
-      onLogin({ name: res.name, email: res.email });
+      localStorage.setItem('sfa_user', JSON.stringify({ name: res.name, username: res.username }));
+      onLogin({ name: res.name, username: res.username });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -59,23 +59,23 @@ const LoginView = ({ onLogin, onRegister, onForgot }) => {
 
           <div className="flex flex-col gap-4">
 
-            {/* Email */}
+            {/* username */}
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
-                Email
+                Usuario
               </label>
               <div className="relative">
-                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+               <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  type="username"
+                  value={username}
+                  onChange={e => setusername(e.target.value)}
                   onKeyDown={handleKey}
-                  placeholder="tu@email.com"
+                  placeholder="Usuario"
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-4 py-2.5 text-sm
                              focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50
                              transition-colors"
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
             </div>

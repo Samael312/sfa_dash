@@ -15,7 +15,7 @@ router = APIRouter(prefix="/internal/dashboard/auth", tags=["auth"])
 # SCHEMAS
 # ==========================================
 class LoginBody(BaseModel):
-    email: str
+    username: str
     password: str
 
 class RegisterBody(BaseModel):
@@ -42,8 +42,8 @@ def endpoint_login(body: LoginBody):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, email, username, password_hash FROM users WHERE email = %s",
-                (body.email.lower().strip(),),
+                "SELECT id, email, username, password_hash FROM users WHERE username = %s",
+                (body.username.lower().strip(),),
             )
             row = cur.fetchone()
     finally:
@@ -52,7 +52,7 @@ def endpoint_login(body: LoginBody):
     # Nota: Si ya corriges hash_password en app/auth.py para truncar, 
     # no necesitas el [:72] aquí, pero dejarlo no hace daño.
     if not row or not verify_password(body.password[:72], row[3]):
-        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
     token = create_access_token({"sub": str(row[0]), "email": row[1], "username": row[2]})
     return {"access_token": token, "token_type": "bearer", "username": row[2], "email": row[1]}
