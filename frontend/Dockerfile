@@ -7,6 +7,11 @@ RUN npm install
 
 # Copiar el código y compilar Vite
 COPY . .
+
+# La URL del backend se inyecta en build time
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 RUN npm run build
 
 # Instalar el servidor estático

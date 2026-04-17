@@ -61,8 +61,8 @@ const RegisterView = ({ onLogin, onBack }) => {
   const handleKey = (e) => { if (e.key === 'Enter') handleSubmit(); };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 w-full max-w-md overflow-hidden">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center py-6 px-2 overflow-y-auto">
+  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 w-full max-w-md overflow-hidden my-auto shrink-0">
         
         {/* Header */}
         <div className="bg-blue-600 px-8 py-6">

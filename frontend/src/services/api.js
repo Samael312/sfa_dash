@@ -34,8 +34,8 @@ export const api = {
   // ==========================================
   // AUTH (Sin token)
   // ==========================================
-  login: async (email, password) => {
-    const res = await axios.post(`${AUTH_BASE}/login`, { email, password });
+  login: async (username, password) => {
+    const res = await axios.post(`${AUTH_BASE}/login`, { username, password });
     return res.data;
   },
  
