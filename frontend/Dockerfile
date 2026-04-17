@@ -1,27 +1,17 @@
-# Etapa 1: Build
-FROM node:20-alpine AS build
+FROM node:20-alpine
 WORKDIR /app
+
+# Instalar dependencias
 COPY package*.json ./
 RUN npm install
+
+# Copiar el código y compilar Vite
 COPY . .
 RUN npm run build
 
-# Etapa 2: Producción con Nginx
-FROM nginx:stable-alpine
+# Instalar el servidor estático
+RUN npm install -g serve
 
-COPY --from=build /app/dist /usr/share/nginx/html
-
-# Creamos el directorio de templates de Nginx
-RUN mkdir -p /etc/nginx/templates
-
-# Creamos la plantilla. Nginx sustituirá ${PORT} automáticamente al arrancar.
-RUN echo 'server { \
-    listen ${PORT}; \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/templates/default.conf.template
-
-# La imagen base de nginx ya tiene su propio CMD de arranque que ejecuta la sustitución
+# Arrancar leyendo la variable de entorno $PORT de Railway
+# Si Railway no manda nada, usa el 8080 por defecto
+CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"]

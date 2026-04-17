@@ -14,7 +14,7 @@ const VARIABLE_LABELS = {
   temperatura_bateria:  'Temp. batería',
 };
 
-const StatusView = ({ sensorId = 'sensor1', onNavigate }) => {
+const StatusView = ({ sensorId = 's1', onNavigate }) => {
   const [status, setStatus]     = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);

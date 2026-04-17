@@ -25,7 +25,7 @@ const TrendIcon = ({ current, previous }) => {
   return             <TrendingDown size={14} className="text-red-400" />;
 };
 
-const LatestView = ({ sensorId = 'sensor1' }) => {
+const LatestView = ({ sensorId = 's1' }) => {
   const [data, setData]       = useState(null);
   const [prev, setPrev]       = useState(null);   // lectura anterior para tendencia
   const [loading, setLoading] = useState(true);

@@ -73,7 +73,7 @@ const deltaIcon = (pred, real) => {
 // ==========================================
 // COMPONENTE PRINCIPAL
 // ==========================================
-const WeatherView = ({ sensorId = 'sensor1' }) => {
+const WeatherView = ({ sensorId = 's1' }) => {
 
   // Coordenadas persistidas
   const [lat, setLat] = useState(() => parseFloat(localStorage.getItem('solar_lat') || '37.40'));

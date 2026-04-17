@@ -25,7 +25,7 @@ from app.api_client import (
 from app.routes.auth_routes import router as auth_router
 
 
-SENSOR_ID = os.getenv("SENSOR_ID", "sensor1")
+SENSOR_ID = os.getenv("SENSOR_ID", "s1")
 
 
 # ==========================================
