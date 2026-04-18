@@ -24,7 +24,7 @@ authAxios.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('sfa_token');
       localStorage.removeItem('sfa_user');
-      window.location.href = '/login'; // Redirección más limpia
+      window.location.reload(); // ← Recarga la SPA, que detecta sin token y muestra login
     }
     return Promise.reject(err);
   }

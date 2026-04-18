@@ -54,8 +54,8 @@ def endpoint_login(body: LoginBody):
     if not row or not verify_password(body.password[:72], row[3]):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
-    token = create_access_token({"sub": str(row[0]), "email": row[1], "username": row[2]})
-    return {"access_token": token, "token_type": "bearer", "username": row[2], "email": row[1]}
+    token = create_access_token({"sub": str(row[0]), "email": row[1], "username": row[2], "name": row[4]})
+    return {"access_token": token, "token_type": "bearer", "username": row[2], "email": row[1], "name": row[4]}
 
 
 @router.post("/register", status_code=201)

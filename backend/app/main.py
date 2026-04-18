@@ -14,7 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-
+from fastapi.security import HTTPBearer
+from fastapi.openapi.utils import get_openapi
 from app.auth import decode_token
 from app.logic.Sfa_mock import run_mock
 from app.api_client import (
@@ -114,7 +115,39 @@ app = FastAPI(
     title="Dashboard SFA — Universidad de Jaén",
     version="4.0.0",
     lifespan=lifespan,
+    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el token entre recargas
 )
+
+_bearer = HTTPBearer(auto_error=False)
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description="API del sistema de monitorización SFA.\n\n"
+                    "**Para autenticarte:** llama primero a `POST /internal/dashboard/auth/login`, "
+                    "copia el `access_token` de la respuesta, pulsa el botón **Authorize 🔒** "
+                    "arriba a la derecha e introduce `<tu_token>` (sin 'Bearer').",
+        routes=app.routes,
+    )
+    # Inyectar el esquema BearerAuth en los componentes
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Pega aquí el access_token obtenido en /auth/login",
+    }
+    # Aplicar seguridad a todas las rutas /sfa/* automáticamente
+    for path, methods in schema.get("paths", {}).items():
+        if "/sfa/" in path:
+            for method_data in methods.values():
+                method_data.setdefault("security", [{"BearerAuth": []}])
+    app.openapi_schema = schema
+    return schema
+
+app.openapi = custom_openapi
 
 # El orden importa: el último add_middleware es el más externo (corre primero).
 # JWT se registra primero → CORS se registra segundo → CORS corre primero → resuelve OPTIONS.

@@ -34,7 +34,19 @@ const getStoredUser = () => {
   try {
     const token = localStorage.getItem('sfa_token');
     const raw   = localStorage.getItem('sfa_user');
-    if (token && raw) return JSON.parse(raw);
+    if (!token || !raw) return null;
+
+    // Decodificar el payload del JWT (sin verificar firma, solo leer exp)
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      // Token expirado → limpiar y forzar login
+      localStorage.removeItem('sfa_token');
+      localStorage.removeItem('sfa_user');
+      return null;
+    }
+
+    return JSON.parse(raw);
   } catch { /* ignore */ }
   return null;
 };

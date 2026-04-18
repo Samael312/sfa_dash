@@ -49,8 +49,9 @@ const RegisterView = ({ onLogin, onBack }) => {
       );
       
       localStorage.setItem('sfa_token', res.access_token);
-      localStorage.setItem('sfa_user', JSON.stringify({ username: res.username, email: res.email }));
-      onLogin({ username: res.username, email: res.email });
+      const displayName = form.name || res.username;
+      localStorage.setItem('sfa_user', JSON.stringify({ name: displayName, username: res.username }));
+      onLogin({ name: displayName, username: res.username });
     } catch (e) {
       setError(e.message || 'Error al conectar con el servidor');
     } finally {

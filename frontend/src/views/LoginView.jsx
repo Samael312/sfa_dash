@@ -19,8 +19,9 @@ const LoginView = ({ onLogin, onRegister, onForgot }) => {
     try {
       const res = await api.login(username.trim(), password);
       localStorage.setItem('sfa_token', res.access_token);
-      localStorage.setItem('sfa_user', JSON.stringify({ name: res.name, username: res.username }));
-      onLogin({ name: res.name, username: res.username });
+      const displayName = res.name || res.username;
+      localStorage.setItem('sfa_user', JSON.stringify({ name: displayName, username: res.username }));
+      onLogin({ name: displayName, username: res.username });
     } catch (e) {
       setError(e.message);
     } finally {

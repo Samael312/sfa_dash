@@ -126,6 +126,7 @@ async def run_mock(sensor_id: str = "sensor1"):
 # ==========================================
 if __name__ == "__main__":
     import argparse
+    MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE = "autorack.proxy.rlwy.net", 35512, "universidad/jaen"
     parser = argparse.ArgumentParser(description="Simulador SFA — publicador MQTT")
     parser.add_argument("--sensor", default="sensor1")
     args = parser.parse_args()
