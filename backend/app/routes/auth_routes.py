@@ -41,19 +41,19 @@ def endpoint_login(body: LoginBody):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            # Agregamos 'name' a la consulta
             cur.execute(
-                "SELECT id, email, username, password_hash FROM users WHERE username = %s",
+                "SELECT id, email, username, password_hash, name FROM users WHERE username = %s",
                 (body.username.lower().strip(),),
             )
             row = cur.fetchone()
     finally:
         release_conn(conn)
 
-    # Nota: Si ya corriges hash_password en app/auth.py para truncar, 
-    # no necesitas el [:72] aquí, pero dejarlo no hace daño.
     if not row or not verify_password(body.password[:72], row[3]):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
 
+    # Ahora row[4] sí existe y contiene el nombre
     token = create_access_token({"sub": str(row[0]), "email": row[1], "username": row[2], "name": row[4]})
     return {"access_token": token, "token_type": "bearer", "username": row[2], "email": row[1], "name": row[4]}
 
