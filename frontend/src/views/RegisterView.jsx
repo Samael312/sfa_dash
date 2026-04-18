@@ -104,7 +104,7 @@ const RegisterView = ({ onLogin, onBack }) => {
                         type="text"
                         value={form.name}
                         onChange={e => set('name', e.target.value)}
-                        placeholder="Ej. Juan"
+                        placeholder="Ej. Samuel"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
                     />
                 </div>
@@ -114,7 +114,7 @@ const RegisterView = ({ onLogin, onBack }) => {
                         type="text"
                         value={form.surname}
                         onChange={e => set('surname', e.target.value)}
-                        placeholder="Ej. Pérez"
+                        placeholder="Ej. Ali"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
                     />
                 </div>
