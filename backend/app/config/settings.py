@@ -26,11 +26,11 @@ if not DB_URL:
 # Variables SFA — metadatos compartidos
 # ==========================================
 SFA_VARIABLES = {
-    "radiacion_solar":      {"unit": "W/m²", "label": "Radiación solar"},
-    "temperatura_ambiente": {"unit": "°C",   "label": "Temperatura ambiente"},
-    "corriente_generada":   {"unit": "A",    "label": "Corriente generada"},
-    "tension_bateria":      {"unit": "V",    "label": "Tensión de la batería"},
-    "corriente_bateria":    {"unit": "A",    "label": "Corriente de la batería"},
-    "corriente_carga":      {"unit": "A",    "label": "Corriente de carga"},
-    "temperatura_bateria":  {"unit": "°C",   "label": "Temperatura de la batería"},
+    "radiacion":      {"unit": "W/m²", "label": "Radiación solar"},
+    "temp_amb": {"unit": "°C",   "label": "Temperatura ambiente"},
+    "i_generada":   {"unit": "A",    "label": "Corriente generada"},
+    "v_bateria":      {"unit": "V",    "label": "Tensión de la batería"},
+    "temp_pan":    {"unit": "°C",    "label": "Temperatura del panel"},
+    "i_carga":      {"unit": "A",    "label": "Corriente de carga"},
+    "temp_bat":  {"unit": "°C",   "label": "Temperatura de la batería"},
 }

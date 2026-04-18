@@ -85,7 +85,7 @@ def get_history(sensor_id: str, variable: str, hours: int = 24) -> list[dict] | 
 
 def get_status(sensor_id: str) -> dict:
     latest = get_latest(sensor_id)
-    v       = latest.get("tension_bateria", 12.0)
+    v       = latest.get("v_bateria", 12.0)
     soc_pct = round(max(0.0, min(100.0, (v - 11.0) / 3.4 * 100)), 1)
     conn = get_conn()
     try:
@@ -117,7 +117,7 @@ def get_status(sensor_id: str) -> dict:
         "sensor_id":        sensor_id,
         "last_update":      latest["timestamp"],
         "battery_percent":  soc_pct,
-        "solar_generating": (latest.get("radiacion_solar") or 0) > 50,
+        "solar_generating": (latest.get("radiacion") or 0) > 50,
         "active_alerts":    len(alerts),
         "alerts":           alerts,
         "variables_meta":   SFA_VARIABLES,

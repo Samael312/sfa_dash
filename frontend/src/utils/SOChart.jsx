@@ -5,7 +5,7 @@
  *   - Eje Y izquierdo: SOC estimado (%)  → línea azul
  *   - Eje Y derecho:   Tensión batería (V) → línea verde
  *
- * El SOC se calcula a partir del histórico de tension_bateria:
+ * El SOC se calcula a partir del histórico de v_bateria:
  *   SOC(%) = clamp((V - 11.0) / 3.4 * 100, 0, 100)
  *
  * Props:
@@ -43,7 +43,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.getSFAHistory(sensorId, 'tension_bateria', hours);
+      const res = await api.getSFAHistory(sensorId, 'v_bateria', hours);
       setPoints(res?.points ?? []);
     } catch {
       setError('Error al cargar el historial de tensión.');

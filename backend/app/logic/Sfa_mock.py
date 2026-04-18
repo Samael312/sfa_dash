@@ -52,13 +52,13 @@ def generate_readings() -> dict[str, float]:
     t_bat = t_amb + 3.0 + 0.8 * abs(net) + random.gauss(0, 0.5)
 
     return {
-        "radiacion_solar":      round(rad,   2),
-        "temperatura_ambiente": round(t_amb, 2),
-        "corriente_generada":   round(i_gen, 2),
-        "tension_bateria":      round(v_bat, 2),
-        "corriente_bateria":    round(i_bat, 2),
-        "corriente_carga":      round(load,  2),
-        "temperatura_bateria":  round(t_bat, 2),
+        "radiacion":      round(rad,   2),
+        "temp_amb": round(t_amb, 2),
+        "i_generada":   round(i_gen, 2),
+        "v_bateria":      round(v_bat, 2),
+        "temp_pan":    round(t_bat, 2),
+        "i_carga":      round(load,  2),
+        "temp_bat":  round(t_bat, 2),
     }
 
 
@@ -108,8 +108,8 @@ async def run_mock(sensor_id: str = "s1"):
 
             print(
                 f"[mock {now.strftime('%H:%M:%S')}] {sensor_id} → "
-                f"rad={readings['radiacion_solar']} W/m²  "
-                f"v_bat={readings['tension_bateria']} V  "
+                f"rad={readings['radiacion']} W/m²  "
+                f"v_bat={readings['v_bateria']} V  "
                 f"soc={round(_state['soc'] * 100, 1)} %"
             )
             await asyncio.sleep(PUBLISH_INTERVAL)

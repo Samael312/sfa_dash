@@ -12,13 +12,13 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const VARIABLES = [
-  { key: 'radiacion_solar',      label: 'Radiación solar',    unit: 'W/m²', color: '#F59E0B' },
-  { key: 'temperatura_ambiente', label: 'Temp. ambiente',     unit: '°C',   color: '#EF4444' },
-  { key: 'corriente_generada',   label: 'Corriente generada', unit: 'A',    color: '#10B981' },
-  { key: 'tension_bateria',      label: 'Tensión batería',    unit: 'V',    color: '#3B82F6' },
-  { key: 'corriente_bateria',    label: 'Corriente batería',  unit: 'A',    color: '#8B5CF6' },
-  { key: 'corriente_carga',      label: 'Corriente carga',    unit: 'A',    color: '#06B6D4' },
-  { key: 'temperatura_bateria',  label: 'Temp. batería',      unit: '°C',   color: '#F97316' },
+  { key: 'radiacion',      label: 'Radiación solar',    unit: 'W/m²', color: '#F59E0B' },
+  { key: 'temp_amb', label: 'Temp. ambiente',     unit: '°C',   color: '#EF4444' },
+  { key: 'i_generada',   label: 'Corriente generada', unit: 'A',    color: '#10B981' },
+  { key: 'v_bateria',      label: 'Tensión batería',    unit: 'V',    color: '#3B82F6' },
+  { key: 'temp_pan',    label: 'Temperatura panel',  unit: '°C',    color: '#8B5CF6' },
+  { key: 'i_carga',      label: 'Corriente carga',    unit: 'A',    color: '#06B6D4' },
+  { key: 'temp_bat',  label: 'Temp. batería',      unit: '°C',   color: '#F97316' },
 ];
 
 const chartOptions = {

@@ -5,13 +5,13 @@ import { api } from '../services/api';
 import { Loader2, RefreshCw, Trash2, Settings2 } from 'lucide-react';
 
 const VARIABLE_LABELS = {
-  radiacion_solar:      'Radiación solar',
-  temperatura_ambiente: 'Temp. ambiente',
-  corriente_generada:   'Corriente generada',
-  tension_bateria:      'Tensión batería',
-  corriente_bateria:    'Corriente batería',
-  corriente_carga:      'Corriente carga',
-  temperatura_bateria:  'Temp. batería',
+  radiacion:      'Radiación solar',
+  temp_amb: 'Temp. ambiente',
+  i_generada:   'Corriente generada',
+  v_bateria:      'Tensión batería',
+  temp_pan:    'Temperatura panel',
+  i_carga:      'Corriente carga',
+  temp_bat:  'Temp. batería',
 };
 
 const StatusView = ({ sensorId = 's1', onNavigate }) => {

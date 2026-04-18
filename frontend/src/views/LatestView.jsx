@@ -3,13 +3,13 @@ import { api } from '../services/api';
 import { Loader2, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 const VARIABLES = [
-  { key: 'radiacion_solar',      label: 'Radiación solar',    unit: 'W/m²', color: 'border-yellow-400', text: 'text-yellow-600' },
-  { key: 'temperatura_ambiente', label: 'Temp. ambiente',     unit: '°C',   color: 'border-red-400',    text: 'text-red-600'    },
-  { key: 'corriente_generada',   label: 'Corriente generada', unit: 'A',    color: 'border-green-400',  text: 'text-green-600'  },
-  { key: 'tension_bateria',      label: 'Tensión batería',    unit: 'V',    color: 'border-blue-400',   text: 'text-blue-600'   },
-  { key: 'corriente_bateria',    label: 'Corriente batería',  unit: 'A',    color: 'border-purple-400', text: 'text-purple-600' },
-  { key: 'corriente_carga',      label: 'Corriente carga',    unit: 'A',    color: 'border-cyan-400',   text: 'text-cyan-600'   },
-  { key: 'temperatura_bateria',  label: 'Temp. batería',      unit: '°C',   color: 'border-orange-400', text: 'text-orange-600' },
+  { key: 'radiacion',      label: 'Radiación solar',    unit: 'W/m²', color: 'border-yellow-400', text: 'text-yellow-600' },
+  { key: 'temp_amb', label: 'Temp. ambiente',     unit: '°C',   color: 'border-red-400',    text: 'text-red-600'    },
+  { key: 'i_generada',   label: 'Corriente generada', unit: 'A',    color: 'border-green-400',  text: 'text-green-600'  },
+  { key: 'v_bateria',      label: 'Tensión batería',    unit: 'V',    color: 'border-blue-400',   text: 'text-blue-600'   },
+  { key: 'temp_pan',    label: 'Temperatura panel',  unit: '°C',    color: 'border-purple-400', text: 'text-purple-600' },
+  { key: 'i_carga',      label: 'Corriente carga',    unit: 'A',    color: 'border-cyan-400',   text: 'text-cyan-600'   },
+  { key: 'temp_bat',  label: 'Temp. batería',      unit: '°C',   color: 'border-orange-400', text: 'text-orange-600' },
 ];
 
 // Umbral mínimo de cambio para considerar tendencia (evita ruido)

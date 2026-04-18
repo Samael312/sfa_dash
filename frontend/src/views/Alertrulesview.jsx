@@ -3,27 +3,27 @@ import { api } from '../services/api';
 import { Loader2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 
 const VARIABLES = [
-  'radiacion_solar', 'temperatura_ambiente', 'corriente_generada',
-  'tension_bateria', 'corriente_bateria', 'corriente_carga', 'temperatura_bateria',
+  'radiacion', 'temp_amb', 'i_generada',
+  'v_bateria', 'temp_pan', 'i_carga', 'temp_bat',
 ];
 
 const VARIABLE_LABELS = {
-  radiacion_solar:      'Radiación solar',
-  temperatura_ambiente: 'Temp. ambiente',
-  corriente_generada:   'Corriente generada',
-  tension_bateria:      'Tensión batería',
-  corriente_bateria:    'Corriente batería',
-  corriente_carga:      'Corriente carga',
-  temperatura_bateria:  'Temp. batería',
+  radiacion:      'Radiación solar',
+  temp_amb: 'Temp. ambiente',
+  i_generada:   'Corriente generada',
+  v_bateria:      'Tensión batería',
+  temp_pan:    'Temperatura panel',
+  i_carga:      'Corriente carga',
+  temp_bat:  'Temp. batería',
 };
 
 const UNITS = {
-  radiacion_solar: 'W/m²', temperatura_ambiente: '°C', corriente_generada: 'A',
-  tension_bateria: 'V', corriente_bateria: 'A', corriente_carga: 'A', temperatura_bateria: '°C',
+  radiacion: 'W/m²', temp_amb: '°C', i_generada: 'A',
+  v_bateria: 'V', temp_pan: '°C', i_carga: 'A', temp_bat: '°C',
 };
 
 const EMPTY_FORM = {
-  variable: 'tension_bateria', operator: '<=',
+  variable: 'v_bateria', operator: '<=',
   threshold: '', level: 'warning', message: 'usa {value} para insertar el valor',
 };
 

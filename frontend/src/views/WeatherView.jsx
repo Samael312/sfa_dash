@@ -271,9 +271,9 @@ const WeatherView = ({ sensorId = 's1' }) => {
   // ==========================================
   // RENDER PRINCIPAL
   // ==========================================
-  const realRad  = sensorLatest?.radiacion_solar ?? null;
-  const realTemp = sensorLatest?.temperatura_ambiente ?? null;
-  const realGen  = sensorLatest?.corriente_generada ?? null;
+  const realRad  = sensorLatest?.radiacion ?? null;
+  const realTemp = sensorLatest?.temp_amb ?? null;
+  const realGen  = sensorLatest?.i_generada ?? null;
 
   return (
     <div className="flex flex-col gap-6">
