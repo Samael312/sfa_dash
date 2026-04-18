@@ -80,7 +80,7 @@ def _build_client() -> mqtt.Client:
 # ==========================================
 # TAREA ASYNCIO — para usar desde main.py
 # ==========================================
-async def run_mock(sensor_id: str = "sensor1"):
+async def run_mock(sensor_id: str = "s1"):
     """
     Corrutina asyncio que publica datos simulados cada PUBLISH_INTERVAL segundos.
     Llamar con asyncio.create_task(run_mock()) desde el lifespan de FastAPI.
@@ -128,6 +128,6 @@ if __name__ == "__main__":
     import argparse
     MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_BASE = "autorack.proxy.rlwy.net", 35512, "universidad/jaen"
     parser = argparse.ArgumentParser(description="Simulador SFA — publicador MQTT")
-    parser.add_argument("--sensor", default="sensor1")
+    parser.add_argument("--sensor", default="s1")
     args = parser.parse_args()
     #asyncio.run(run_mock(sensor_id=args.sensor))

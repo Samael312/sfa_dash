@@ -35,7 +35,7 @@ const V_MIN  = 11.0;
 const V_MAX  = 14.4;
 const toSOC  = v => Math.round(Math.max(0, Math.min(100, (v - V_MIN) / (V_MAX - V_MIN) * 100)) * 10) / 10;
 
-const SOCChart = ({ sensorId = 'sensor1', hours = 24, title = 'Estado de carga (SOC)' }) => {
+const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)' }) => {
   const [points, setPoints]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);

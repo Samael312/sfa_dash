@@ -31,7 +31,7 @@ const chartOptions = {
   },
 };
 
-const HistoryView = ({ sensorId = 'sensor1' }) => {
+const HistoryView = ({ sensorId = 's1' }) => {
   const [history, setHistory] = useState({});
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState(24);

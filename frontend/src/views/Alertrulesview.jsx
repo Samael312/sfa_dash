@@ -27,7 +27,7 @@ const EMPTY_FORM = {
   threshold: '', level: 'warning', message: 'usa {value} para insertar el valor',
 };
 
-const AlertRulesView = ({ sensorId = 'sensor1' }) => {
+const AlertRulesView = ({ sensorId = 's1' }) => {
   const [rules, setRules]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);

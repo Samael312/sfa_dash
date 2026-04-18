@@ -1,8 +1,11 @@
-# Etapa 1: Build
-FROM node:20-alpine AS build
+FROM node:20-alpine
 WORKDIR /app
+
+# Instalar dependencias
 COPY package*.json ./
 RUN npm install
+
+# Copiar el código y compilar Vite
 COPY . .
 
 # La URL del backend se inyecta en build time
@@ -11,16 +14,9 @@ ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 
-# Etapa 2: Nginx
-FROM nginx:stable-alpine
+# Instalar el servidor estático
+RUN npm install -g serve
 
-# Instalar gettext para envsubst
-RUN apk add --no-cache gettext
-
-COPY --from=build /app/dist /usr/share/nginx/html
-
-# Plantilla de configuración de Nginx
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
-
-# Script de arranque que sustituye $PORT y lanza nginx
-CMD ["sh", "-c", "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+# Arrancar leyendo la variable de entorno $PORT de Railway
+# Si Railway no manda nada, usa el 8080 por defecto
+CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}"]

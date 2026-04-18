@@ -64,19 +64,19 @@ export const api = {
     return res.data;
   },
 
-  getSFALatest: async (sensorId = 'sensor1') => {
+  getSFALatest: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/latest`, { params: { sensor_id: sensorId } });
     return res.data;
   },
 
-  getSFAHistory: async (sensorId = 'sensor1', variable, hours = 24) => {
+  getSFAHistory: async (sensorId = 's1', variable, hours = 24) => {
     const res = await authAxios.get(`${API_BASE}/history`, {
       params: { sensor_id: sensorId, variable, hours }
     });
     return res.data;
   },
 
-  getSFAStatus: async (sensorId = 'sensor1') => {
+  getSFAStatus: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/status`, { params: { sensor_id: sensorId } });
     return res.data;
   },
@@ -84,7 +84,7 @@ export const api = {
   // ==========================================
   // REGLAS Y EVALUACIÓN (Usando authAxios)
   // ==========================================
-  getAlertRules: async (sensorId = 'sensor1') => {
+  getAlertRules: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/alert-rules`, { params: { sensor_id: sensorId } });
     return res.data;
   },
@@ -104,19 +104,19 @@ export const api = {
     return res.data;
   },
 
-  getAlertsHistory: async (sensorId = 'sensor1', { page = 1, limit = 10 } = {}) => {
+  getAlertsHistory: async (sensorId = 's1', { page = 1, limit = 10 } = {}) => {
     const res = await authAxios.get(`${API_BASE}/alerts/history`, {
       params: { sensor_id: sensorId, page, limit }
     });
     return res.data;
   },
 
-  evaluateAlerts: async (sensorId = 'sensor1') => {
+  evaluateAlerts: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/alerts/evaluate`, { params: { sensor_id: sensorId } });
     return res.data;
   },
 
-  clearAlerts: async (sensorId = 'sensor1') => {
+  clearAlerts: async (sensorId = 's1') => {
     const res = await authAxios.delete(`${API_BASE}/alerts`, { params: { sensor_id: sensorId } });
     return res.data;
   },
