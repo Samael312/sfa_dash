@@ -28,24 +28,24 @@ from app.routes.auth_routes import router as auth_router
 
 SENSOR_ID = os.getenv("SENSOR_ID", "s1")
 
+# ==========================================
+# ESTADO GLOBAL DEL MOCK
+# ==========================================
+# Diccionario: sensor_id → {"task": asyncio.Task, "stop_event": asyncio.Event}
+_mock_tasks: dict[str, dict] = {}
+
 
 # ==========================================
 # MIDDLEWARE DE AUTENTICACIÓN
 # ==========================================
 class JWTAuthMiddleware(BaseHTTPMiddleware):
-    """
-    Protege todas las rutas /internal/dashboard/sfa/*
-    Las rutas de auth (/internal/dashboard/auth/*) son públicas.
-    """
-
     async def dispatch(self, request: Request, call_next):
-        # Dejar pasar siempre el preflight CORS (OPTIONS)
         if request.method == "OPTIONS":
             return await call_next(request)
 
         path = request.url.path
 
-        # Rutas públicas: auth + docs
+        # Rutas públicas
         if (
             path.startswith("/internal/dashboard/auth")
             or path.startswith("/docs")
@@ -54,8 +54,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        # Proteger rutas SFA
-        if path.startswith("/internal/dashboard/sfa"):
+        # Proteger rutas SFA y mock
+        if path.startswith("/internal/dashboard/"):
             auth_header = request.headers.get("Authorization", "")
             if not auth_header.startswith("Bearer "):
                 return JSONResponse(
@@ -69,7 +69,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                     status_code=401,
                     content={"detail": "Token inválido o expirado. Inicia sesión de nuevo."},
                 )
-            # Adjuntar usuario a la request (opcional, para logs)
             request.state.user = payload
 
         return await call_next(request)
@@ -98,24 +97,26 @@ class AlertRuleUpdate(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
-    #mock_task = asyncio.create_task(run_mock(sensor_id=SENSOR_ID))
     print(f"📡 SFA arrancado para sensor '{SENSOR_ID}'")
     yield
-    #mock_task.cancel()
-    #try:
-    #    await mock_task
-    #except asyncio.CancelledError:
-    #    pass
+    # Cancelar todos los mocks activos al apagar
+    for sensor_id, info in list(_mock_tasks.items()):
+        info["stop_event"].set()
+        info["task"].cancel()
+        try:
+            await info["task"]
+        except (asyncio.CancelledError, Exception):
+            pass
+        print(f"🛑 Mock [{sensor_id}] detenido al apagar.")
     print("🛑 Aplicación cerrada.")
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
-
 app = FastAPI(
     title="Dashboard SFA — Universidad de Jaén",
     version="4.0.0",
     lifespan=lifespan,
-    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el token entre recargas
+    swagger_ui_parameters={"persistAuthorization": True},
 )
 
 _bearer = HTTPBearer(auto_error=False)
@@ -126,22 +127,16 @@ def custom_openapi():
     schema = get_openapi(
         title=app.title,
         version=app.version,
-        description="API del sistema de monitorización SFA.\n\n"
-                    "**Para autenticarte:** llama primero a `POST /internal/dashboard/auth/login`, "
-                    "copia el `access_token` de la respuesta, pulsa el botón **Authorize 🔒** "
-                    "arriba a la derecha e introduce `<tu_token>` (sin 'Bearer').",
+        description="API del sistema de monitorización SFA.",
         routes=app.routes,
     )
-    # Inyectar el esquema BearerAuth en los componentes
     schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Pega aquí el access_token obtenido en /auth/login",
     }
-    # Aplicar seguridad a todas las rutas /sfa/* automáticamente
     for path, methods in schema.get("paths", {}).items():
-        if "/sfa/" in path:
+        if "/sfa/" in path or "/mock/" in path:
             for method_data in methods.values():
                 method_data.setdefault("security", [{"BearerAuth": []}])
     app.openapi_schema = schema
@@ -149,22 +144,88 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# El orden importa: el último add_middleware es el más externo (corre primero).
-# JWT se registra primero → CORS se registra segundo → CORS corre primero → resuelve OPTIONS.
 app.add_middleware(JWTAuthMiddleware)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials= True,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Registrar rutas de auth
 app.include_router(auth_router)
 
 BASE = "/internal/dashboard/sfa"
+MOCK_BASE = "/internal/dashboard/mock"
+
+
+# ==========================================
+# MOCK CONTROL
+# ==========================================
+@app.post(f"{MOCK_BASE}/start")
+async def endpoint_mock_start(sensor_id: str = Query(default="s2")):
+    """
+    Arranca el simulador MQTT para el sensor indicado.
+    Por defecto simula 's2'. Se puede usar cualquier sensor_id.
+    """
+    if sensor_id in _mock_tasks:
+        info = _mock_tasks[sensor_id]
+        if not info["task"].done():
+            return {
+                "status": "already_running",
+                "sensor_id": sensor_id,
+                "message": f"El mock para '{sensor_id}' ya está en ejecución.",
+            }
+        # La tarea terminó (p.ej. por error), limpiar entrada antigua
+        del _mock_tasks[sensor_id]
+
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(run_mock(sensor_id=sensor_id, stop_event=stop_event))
+    _mock_tasks[sensor_id] = {"task": task, "stop_event": stop_event}
+
+    return {
+        "status": "started",
+        "sensor_id": sensor_id,
+        "message": f"Simulador iniciado para sensor '{sensor_id}'.",
+    }
+
+
+@app.post(f"{MOCK_BASE}/stop")
+async def endpoint_mock_stop(sensor_id: str = Query(default="s2")):
+    """Detiene el simulador MQTT del sensor indicado."""
+    if sensor_id not in _mock_tasks:
+        return {
+            "status": "not_running",
+            "sensor_id": sensor_id,
+            "message": f"No hay mock activo para '{sensor_id}'.",
+        }
+
+    info = _mock_tasks[sensor_id]
+    info["stop_event"].set()
+    info["task"].cancel()
+    try:
+        await info["task"]
+    except (asyncio.CancelledError, Exception):
+        pass
+    del _mock_tasks[sensor_id]
+
+    return {
+        "status": "stopped",
+        "sensor_id": sensor_id,
+        "message": f"Simulador detenido para sensor '{sensor_id}'.",
+    }
+
+
+@app.get(f"{MOCK_BASE}/status")
+def endpoint_mock_status():
+    """Devuelve el estado de todos los simuladores activos."""
+    result = {}
+    for sensor_id, info in _mock_tasks.items():
+        result[sensor_id] = {
+            "running": not info["task"].done(),
+            "cancelled": info["task"].cancelled(),
+        }
+    return {"mocks": result, "active_count": len(result)}
 
 
 # ==========================================
@@ -231,11 +292,10 @@ def endpoint_get_rules(sensor_id: str = Query(...)):
 @app.post(f"{BASE}/alert-rules", status_code=201)
 def endpoint_create_rule(body: AlertRuleCreate):
     try:
-        rule = create_alert_rule(
+        return create_alert_rule(
             body.sensor_id, body.variable, body.operator,
             body.threshold, body.level, body.message
         )
-        return rule
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -245,8 +305,7 @@ def endpoint_create_rule(body: AlertRuleCreate):
 @app.put(f"{BASE}/alert-rules/{{rule_id}}")
 def endpoint_update_rule(rule_id: int, body: AlertRuleUpdate):
     try:
-        rule = update_alert_rule(rule_id, body.threshold, body.level, body.message)
-        return rule
+        return update_alert_rule(rule_id, body.threshold, body.level, body.message)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

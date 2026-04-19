@@ -8,7 +8,7 @@ load_dotenv()
 # ==========================================
 MQTT_BROKER     = os.getenv("MQTT_BROKER", "autorack.proxy.rlwy.net")
 MQTT_PORT       = int(os.getenv("MQTT_PORT", 35512))
-MQTT_TOPIC_BASE = os.getenv("MQTT_TOPIC_BASE", "universidad/jaen")
+MQTT_TOPIC_BASE = os.getenv("MQTT_TOPIC_BASE", "/uja")
 MQTT_TOPIC_SUB  = f"{MQTT_TOPIC_BASE}/+/+"
 
 # ==========================================
