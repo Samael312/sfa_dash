@@ -3,25 +3,21 @@ api_client.py
 -------------
 Capa de acceso a datos. Lee de sfa_readings, sfa_alerts y alert_rules.
 
-Funciones públicas:
-  Datos:
-    - get_latest(sensor_id)
-    - get_history(sensor_id, variable, hours)
-    - get_status(sensor_id)
-    - get_sensors()
+Funciones originales:
+  - get_latest, get_history, get_status, get_sensors
+  - get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule
+  - evaluate_alerts, clear_alerts
 
-  Reglas de alerta (CRUD):
-    - get_alert_rules(sensor_id)
-    - create_alert_rule(sensor_id, variable, operator, threshold, level, message)
-    - update_alert_rule(rule_id, **fields)
-    - delete_alert_rule(rule_id)
-
-  Evaluación y gestión:
-    - evaluate_alerts(sensor_id)   → compara última lectura contra reglas → escribe sfa_alerts
-    - clear_alerts(sensor_id)
+Funciones extendidas (antes en api_client_extended.py):
+  - get_history_aggregated, get_stats
+  - get_energy_daily, get_energy_balance
+  - get_sensor_connectivity
+  - get_alerts_history
+  - get_multi_sensor_history
 """
 
 from datetime import datetime
+from typing import Optional
 
 from app.config.db import get_conn, release_conn
 from app.config.settings import SFA_VARIABLES
@@ -139,7 +135,6 @@ def get_sensors() -> list[str]:
 # CRUD REGLAS DE ALERTA
 # ==========================================
 def get_alert_rules(sensor_id: str) -> list[dict]:
-    """Devuelve todas las reglas de alerta para un sensor."""
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -164,7 +159,6 @@ def get_alert_rules(sensor_id: str) -> list[dict]:
 
 def create_alert_rule(sensor_id: str, variable: str, operator: str,
                       threshold: float, level: str, message: str) -> dict:
-    """Crea una nueva regla de alerta. Lanza error si ya existe la combinación sensor+variable+operator."""
     if variable not in SFA_VARIABLES:
         raise ValueError(f"Variable '{variable}' no reconocida.")
     if operator not in ("<=", ">="):
@@ -195,7 +189,6 @@ def create_alert_rule(sensor_id: str, variable: str, operator: str,
 
 
 def update_alert_rule(rule_id: int, threshold: float, level: str, message: str) -> dict:
-    """Actualiza threshold, level y message de una regla existente."""
     if level not in ("warning", "critical"):
         raise ValueError("level debe ser 'warning' o 'critical'.")
     conn = get_conn()
@@ -224,7 +217,6 @@ def update_alert_rule(rule_id: int, threshold: float, level: str, message: str) 
 
 
 def delete_alert_rule(rule_id: int) -> bool:
-    """Elimina una regla por id. Devuelve True si se eliminó, False si no existía."""
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -243,13 +235,6 @@ def delete_alert_rule(rule_id: int) -> bool:
 # EVALUACIÓN DE ALERTAS
 # ==========================================
 def evaluate_alerts(sensor_id: str) -> list[dict]:
-    """
-    Compara la última lectura contra las reglas.
-    Si una regla dispara:
-      - Si ya existe una alerta para esa variable con el MISMO valor: se ignora (evita spam).
-      - Si existe una alerta para esa variable con DIFERENTE valor: se borra la vieja y se pone la nueva.
-      - Si no existe: se inserta.
-    """
     latest = get_latest(sensor_id)
     rules  = get_alert_rules(sensor_id)
 
@@ -265,7 +250,6 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
                 if value is None:
                     continue
 
-                # 1. Verificar si la regla se cumple (Fired)
                 fired = (
                     value <= rule["threshold"] if rule["operator"] == "<="
                     else value >= rule["threshold"]
@@ -274,7 +258,6 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
                 if not fired:
                     continue
 
-                # 2. Buscar si ya hay una alerta activa para esta variable (última hora)
                 cur.execute("""
                     SELECT id, value FROM sfa_alerts
                     WHERE sensor_id = %s 
@@ -287,15 +270,11 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
 
                 if existing_alert:
                     old_id, old_value = existing_alert
-                    
                     if abs(value - old_value) < 0.001: 
-                        # Es el mismo valor (o casi), no hacemos nada para no saturar
                         continue
                     else:
-                        # El valor cambió: eliminamos la anterior para "reemplazarla"
                         cur.execute("DELETE FROM sfa_alerts WHERE id = %s", (old_id,))
 
-                # 3. Obtener el reading_id de la lectura que disparó esto
                 cur.execute("""
                     SELECT id FROM sfa_readings
                     WHERE sensor_id = %s AND variable = %s
@@ -304,7 +283,6 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
                 reading_row = cur.fetchone()
                 reading_id  = reading_row[0] if reading_row else None
 
-                # 4. Preparar mensaje e insertar nueva alerta
                 op_symbol = rule["operator"]
                 clean_val = round(value, 2)
                 message = (
@@ -341,9 +319,6 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
     return triggered
 
 
-# ==========================================
-# LIMPIAR ALERTAS
-# ==========================================
 def clear_alerts(sensor_id: str) -> int:
     conn = get_conn()
     try:
@@ -355,5 +330,429 @@ def clear_alerts(sensor_id: str) -> int:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# HELPERS INTERNOS EXTENDIDOS
+# ==========================================
+def _bucket_interval(hours: int) -> str | None:
+    """Devuelve el intervalo de agrupación según la ventana solicitada."""
+    if hours <= 3:
+        return None          # Sin agrupación, puntos crudos
+    elif hours <= 24:
+        return "5 minutes"
+    elif hours <= 72:
+        return "15 minutes"
+    elif hours <= 168:
+        return "1 hour"
+    else:
+        return "3 hours"
+
+
+# ==========================================
+# HISTORIAL AGREGADO CON DOWNSAMPLING
+# ==========================================
+def get_history_aggregated(sensor_id: str, variable: str, hours: int = 24) -> dict | None:
+    if variable not in SFA_VARIABLES:
+        return None
+
+    interval = _bucket_interval(hours)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if interval is None:
+                cur.execute("""
+                    SELECT
+                        timestamp,
+                        value,
+                        value AS avg_val,
+                        value AS min_val,
+                        value AS max_val,
+                        0     AS stddev_val,
+                        1     AS count_val
+                    FROM sfa_readings
+                    WHERE sensor_id = %s
+                      AND variable  = %s
+                      AND timestamp >= NOW() - INTERVAL '%s hours'
+                    ORDER BY timestamp ASC
+                """, (sensor_id, variable, hours))
+            else:
+                cur.execute("""
+                    SELECT
+                        date_trunc(%s, timestamp)   AS bucket,
+                        AVG(value)                  AS avg_val,
+                        AVG(value)                  AS avg_val2,
+                        MIN(value)                  AS min_val,
+                        MAX(value)                  AS max_val,
+                        STDDEV(value)               AS stddev_val,
+                        COUNT(*)                    AS count_val
+                    FROM sfa_readings
+                    WHERE sensor_id = %s
+                      AND variable  = %s
+                      AND timestamp >= NOW() - INTERVAL '%s hours'
+                    GROUP BY bucket
+                    ORDER BY bucket ASC
+                """, (interval, sensor_id, variable, hours))
+
+            rows = cur.fetchall()
+
+        points = [
+            {
+                "timestamp": _fmt_ts(r[0]),
+                "value":     round(float(r[1]), 3) if r[1] is not None else None,
+                "avg":       round(float(r[2]), 3) if r[2] is not None else None,
+                "min":       round(float(r[3]), 3) if r[3] is not None else None,
+                "max":       round(float(r[4]), 3) if r[4] is not None else None,
+                "stddev":    round(float(r[5]), 3) if r[5] is not None else 0,
+                "count":     int(r[6]),
+            }
+            for r in rows
+        ]
+
+        return {
+            "sensor_id":  sensor_id,
+            "variable":   variable,
+            "hours":      hours,
+            "interval":   interval or "raw",
+            "unit":       SFA_VARIABLES[variable]["unit"],
+            "label":      SFA_VARIABLES[variable]["label"],
+            "points":     points,
+        }
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# ESTADÍSTICAS GLOBALES DE UNA VARIABLE
+# ==========================================
+def get_stats(sensor_id: str, variable: str, hours: int = 24) -> dict | None:
+    if variable not in SFA_VARIABLES:
+        return None
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    MIN(value),
+                    MAX(value),
+                    AVG(value),
+                    STDDEV(value),
+                    COUNT(*),
+                    (SELECT value FROM sfa_readings
+                     WHERE sensor_id = %s AND variable = %s
+                     ORDER BY timestamp DESC LIMIT 1)
+                FROM sfa_readings
+                WHERE sensor_id = %s
+                  AND variable  = %s
+                  AND timestamp >= NOW() - INTERVAL '%s hours'
+            """, (sensor_id, variable, sensor_id, variable, hours))
+            row = cur.fetchone()
+
+        if not row or row[4] == 0:
+            return None
+
+        return {
+            "sensor_id": sensor_id,
+            "variable":  variable,
+            "hours":     hours,
+            "unit":      SFA_VARIABLES[variable]["unit"],
+            "min":       round(float(row[0]), 3) if row[0] is not None else None,
+            "max":       round(float(row[1]), 3) if row[1] is not None else None,
+            "avg":       round(float(row[2]), 3) if row[2] is not None else None,
+            "stddev":    round(float(row[3]), 3) if row[3] is not None else 0,
+            "count":     int(row[4]),
+            "last":      round(float(row[5]), 3) if row[5] is not None else None,
+        }
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# ENERGÍA ACUMULADA DIARIA
+# ==========================================
+def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                WITH gen AS (
+                    SELECT
+                        DATE(timestamp AT TIME ZONE 'UTC') AS day,
+                        value,
+                        EXTRACT(EPOCH FROM (
+                            timestamp - LAG(timestamp) OVER (
+                                PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
+                                ORDER BY timestamp
+                            )
+                        )) AS delta_seconds
+                    FROM sfa_readings
+                    WHERE sensor_id = %s
+                      AND variable  = 'i_generada'
+                      AND timestamp >= NOW() - INTERVAL '%s days'
+                ),
+                load AS (
+                    SELECT
+                        DATE(timestamp AT TIME ZONE 'UTC') AS day,
+                        value,
+                        EXTRACT(EPOCH FROM (
+                            timestamp - LAG(timestamp) OVER (
+                                PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
+                                ORDER BY timestamp
+                            )
+                        )) AS delta_seconds
+                    FROM sfa_readings
+                    WHERE sensor_id = %s
+                      AND variable  = 'i_carga'
+                      AND timestamp >= NOW() - INTERVAL '%s days'
+                )
+                SELECT
+                    COALESCE(g.day, l.day)                                          AS day,
+                    COALESCE(SUM(g.value * COALESCE(g.delta_seconds, 0) / 3600), 0) AS gen_ah,
+                    COALESCE(SUM(l.value * COALESCE(l.delta_seconds, 0) / 3600), 0) AS load_ah
+                FROM gen g
+                FULL OUTER JOIN load l ON g.day = l.day
+                GROUP BY COALESCE(g.day, l.day)
+                ORDER BY day ASC
+            """, (sensor_id, days, sensor_id, days))
+
+            rows = cur.fetchall()
+
+        return [
+            {
+                "day":     str(r[0]),
+                "gen_ah":  round(float(r[1]), 3),
+                "load_ah": round(float(r[2]), 3),
+                "net_ah":  round(float(r[1]) - float(r[2]), 3),
+            }
+            for r in rows
+        ]
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# BALANCE ENERGÉTICO HISTÓRICO
+# ==========================================
+def get_energy_balance(sensor_id: str, hours: int = 24) -> dict:
+    interval = _bucket_interval(hours) or "5 minutes"
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    date_trunc(%s, timestamp) AS bucket,
+                    variable,
+                    AVG(value)                AS avg_val
+                FROM sfa_readings
+                WHERE sensor_id = %s
+                  AND variable  IN ('i_generada', 'i_carga')
+                  AND timestamp >= NOW() - INTERVAL '%s hours'
+                GROUP BY bucket, variable
+                ORDER BY bucket ASC
+            """, (interval, sensor_id, hours))
+
+            rows = cur.fetchall()
+
+        buckets = {}
+        for ts, variable, avg in rows:
+            key = _fmt_ts(ts)
+            if key not in buckets:
+                buckets[key] = {"timestamp": key, "i_generada": None, "i_carga": None}
+            buckets[key][variable] = round(float(avg), 3) if avg is not None else None
+
+        points = list(buckets.values())
+        for p in points:
+            gen  = p["i_generada"] or 0
+            load = p["i_carga"]    or 0
+            p["net"] = round(gen - load, 3)
+
+        return {
+            "sensor_id": sensor_id,
+            "hours":     hours,
+            "interval":  interval,
+            "points":    points,
+        }
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# CONECTIVIDAD DE SENSORES
+# ==========================================
+def get_sensor_connectivity(sensor_ids: list[str]) -> list[dict]:
+    if not sensor_ids:
+        return []
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    sensor_id,
+                    MAX(timestamp) AS last_seen,
+                    EXTRACT(EPOCH FROM (NOW() - MAX(timestamp))) AS seconds_ago
+                FROM sfa_readings
+                WHERE sensor_id = ANY(%s)
+                GROUP BY sensor_id
+            """, (sensor_ids,))
+            rows = cur.fetchall()
+
+        result = []
+        seen_ids = set()
+        for sensor_id, last_seen, seconds_ago in rows:
+            seen_ids.add(sensor_id)
+            result.append({
+                "sensor_id":   sensor_id,
+                "last_seen":   _fmt_ts(last_seen),
+                "seconds_ago": int(seconds_ago) if seconds_ago is not None else None,
+                "connected":   seconds_ago is not None and seconds_ago < 300,
+                "status":      "online" if (seconds_ago is not None and seconds_ago < 300)
+                               else "offline",
+            })
+
+        for sid in sensor_ids:
+            if sid not in seen_ids:
+                result.append({
+                    "sensor_id":   sid,
+                    "last_seen":   None,
+                    "seconds_ago": None,
+                    "connected":   False,
+                    "status":      "never_seen",
+                })
+
+        return sorted(result, key=lambda x: x["sensor_id"])
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# HISTORIAL DE ALERTAS PAGINADO
+# ==========================================
+def get_alerts_history(
+    sensor_id: str,
+    page: int = 1,
+    limit: int = 20,
+    level: str | None = None,
+    variable: str | None = None,
+) -> dict:
+    offset = (page - 1) * limit
+    filters = ["sensor_id = %s"]
+    params  = [sensor_id]
+
+    if level:
+        filters.append("level = %s")
+        params.append(level)
+    if variable:
+        filters.append("variable = %s")
+        params.append(variable)
+
+    where = " AND ".join(filters)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM sfa_alerts WHERE {where}",
+                params
+            )
+            total = cur.fetchone()[0]
+
+            cur.execute(
+                f"""
+                SELECT id, level, variable, message, timestamp, value
+                FROM sfa_alerts
+                WHERE {where}
+                ORDER BY timestamp DESC
+                LIMIT %s OFFSET %s
+                """,
+                params + [limit, offset]
+            )
+            rows = cur.fetchall()
+
+        alerts = [
+            {
+                "id":        r[0],
+                "level":     r[1],
+                "variable":  r[2],
+                "message":   r[3],
+                "timestamp": _fmt_ts(r[4]),
+                "value":     round(float(r[5]), 3) if r[5] is not None else None,
+            }
+            for r in rows
+        ]
+
+        return {
+            "sensor_id": sensor_id,
+            "page":      page,
+            "limit":     limit,
+            "total":     total,
+            "pages":     (total + limit - 1) // limit,
+            "alerts":    alerts,
+        }
+    finally:
+        release_conn(conn)
+
+
+# ==========================================
+# HISTORIAL MULTI-SENSOR
+# ==========================================
+def get_multi_sensor_history(
+    sensor_ids: list[str],
+    variable: str,
+    hours: int = 24,
+) -> dict | None:
+    if variable not in SFA_VARIABLES:
+        return None
+
+    interval = _bucket_interval(hours)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if interval is None:
+                cur.execute("""
+                    SELECT sensor_id, timestamp, value
+                    FROM sfa_readings
+                    WHERE sensor_id = ANY(%s)
+                      AND variable  = %s
+                      AND timestamp >= NOW() - INTERVAL '%s hours'
+                    ORDER BY sensor_id, timestamp ASC
+                """, (sensor_ids, variable, hours))
+            else:
+                cur.execute("""
+                    SELECT
+                        sensor_id,
+                        date_trunc(%s, timestamp) AS bucket,
+                        AVG(value)                AS avg_val
+                    FROM sfa_readings
+                    WHERE sensor_id = ANY(%s)
+                      AND variable  = %s
+                      AND timestamp >= NOW() - INTERVAL '%s hours'
+                    GROUP BY sensor_id, bucket
+                    ORDER BY sensor_id, bucket ASC
+                """, (interval, sensor_ids, variable, hours))
+
+            rows = cur.fetchall()
+
+        series: dict[str, list] = {sid: [] for sid in sensor_ids}
+        for sensor_id, ts, value in rows:
+            if sensor_id in series:
+                series[sensor_id].append({
+                    "timestamp": _fmt_ts(ts),
+                    "value":     round(float(value), 3) if value is not None else None,
+                })
+
+        return {
+            "variable": variable,
+            "hours":    hours,
+            "interval": interval or "raw",
+            "unit":     SFA_VARIABLES[variable]["unit"],
+            "label":    SFA_VARIABLES[variable]["label"],
+            "series":   [
+                {"sensor_id": sid, "points": series[sid]}
+                for sid in sensor_ids
+            ],
+        }
     finally:
         release_conn(conn)

@@ -56,7 +56,7 @@ export const api = {
   },
 
   // ==========================================
-  // DATOS (authAxios)
+  // DATOS BASE (authAxios)
   // ==========================================
   getSensors: async () => {
     const res = await authAxios.get(`${API_BASE}/sensors`);
@@ -103,13 +103,6 @@ export const api = {
     return res.data;
   },
 
-  getAlertsHistory: async (sensorId = 's1', { page = 1, limit = 10 } = {}) => {
-    const res = await authAxios.get(`${API_BASE}/alerts/history`, {
-      params: { sensor_id: sensorId, page, limit }
-    });
-    return res.data;
-  },
-
   evaluateAlerts: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/alerts/evaluate`, { params: { sensor_id: sensorId } });
     return res.data;
@@ -123,8 +116,6 @@ export const api = {
   // ==========================================
   // MOCK CONTROL (authAxios)
   // ==========================================
-
-  /** Arranca el simulador MQTT para el sensor indicado (por defecto 's2'). */
   startMock: async (sensorId = 's2') => {
     const res = await authAxios.post(`${MOCK_BASE}/start`, null, {
       params: { sensor_id: sensorId }
@@ -132,7 +123,6 @@ export const api = {
     return res.data;
   },
 
-  /** Detiene el simulador MQTT para el sensor indicado. */
   stopMock: async (sensorId = 's2') => {
     const res = await authAxios.post(`${MOCK_BASE}/stop`, null, {
       params: { sensor_id: sensorId }
@@ -140,9 +130,73 @@ export const api = {
     return res.data;
   },
 
-  /** Devuelve el estado de todos los simuladores activos. */
   getMockStatus: async () => {
     const res = await authAxios.get(`${MOCK_BASE}/status`);
+    return res.data;
+  },
+
+  // ==========================================
+  // ENDPOINTS EXTENDIDOS (authAxios)
+  // ==========================================
+
+  /** Historial con downsampling automático. Incluye avg, min, max, stddev por bucket. */
+  getHistoryAggregated: async (sensorId, variable, hours = 24) => {
+    const res = await authAxios.get(`${API_BASE}/history/aggregated`, {
+      params: { sensor_id: sensorId, variable, hours }
+    });
+    return res.data;
+  },
+
+  /** Estadísticas globales de una variable: min, max, media, stddev, conteo, último valor. */
+  getStats: async (sensorId, variable, hours = 24) => {
+    const res = await authAxios.get(`${API_BASE}/stats`, {
+      params: { sensor_id: sensorId, variable, hours }
+    });
+    return res.data;
+  },
+
+  /** Energía acumulada por día (Ah): generada, consumida y balance neto. */
+  getEnergyDaily: async (sensorId, days = 7) => {
+    const res = await authAxios.get(`${API_BASE}/energy/daily`, {
+      params: { sensor_id: sensorId, days }
+    });
+    return res.data;
+  },
+
+  /** Balance energético histórico: generación vs consumo vs neto con downsampling. */
+  getEnergyBalance: async (sensorId, hours = 24) => {
+    const res = await authAxios.get(`${API_BASE}/energy/balance`, {
+      params: { sensor_id: sensorId, hours }
+    });
+    return res.data;
+  },
+
+  /** Estado de conectividad de varios sensores (offline si última lectura > 5 min). */
+  getSensorsConnectivity: async (sensorIds = []) => {
+    const res = await authAxios.get(`${API_BASE}/sensors/connectivity`, {
+      params: { sensor_ids: sensorIds.join(',') }
+    });
+    return res.data;
+  },
+
+  /**
+   * Historial completo de alertas paginado, sin límite de 24h.
+   * Reemplaza la versión anterior vacía.
+   * @param {string} sensorId
+   * @param {{ page?, limit?, level?, variable? }} opts
+   */
+  getAlertsHistory: async (sensorId = 's1', { page = 1, limit = 20, level, variable } = {}) => {
+    const res = await authAxios.get(`${API_BASE}/alerts/history`, {
+      params: { sensor_id: sensorId, page, limit, level, variable }
+    });
+    return res.data;
+  },
+
+  /** Historial de una variable para múltiples sensores simultáneamente. */
+  getMultiSensorHistory: async (sensorIds = [], variable, hours = 24) => {
+    const res = await authAxios.get(`${API_BASE}/history/multi`, {
+      params: { sensor_ids: sensorIds.join(','), variable, hours }
+    });
     return res.data;
   },
 };

@@ -7,6 +7,7 @@ API FastAPI del dashboard SFA — con autenticación JWT.
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -22,6 +23,10 @@ from app.api_client import (
     get_latest, get_history, get_status, get_sensors,
     get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule,
     evaluate_alerts, clear_alerts,
+    get_history_aggregated, get_stats,
+    get_energy_daily, get_energy_balance,
+    get_sensor_connectivity, get_alerts_history,
+    get_multi_sensor_history,
 )
 from app.routes.auth_routes import router as auth_router
 
@@ -31,7 +36,6 @@ SENSOR_ID = os.getenv("SENSOR_ID", "s1")
 # ==========================================
 # ESTADO GLOBAL DEL MOCK
 # ==========================================
-# Diccionario: sensor_id → {"task": asyncio.Task, "stop_event": asyncio.Event}
 _mock_tasks: dict[str, dict] = {}
 
 
@@ -45,7 +49,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
 
-        # Rutas públicas
         if (
             path.startswith("/internal/dashboard/auth")
             or path.startswith("/docs")
@@ -54,7 +57,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        # Proteger rutas SFA y mock
         if path.startswith("/internal/dashboard/"):
             auth_header = request.headers.get("Authorization", "")
             if not auth_header.startswith("Bearer "):
@@ -99,7 +101,6 @@ async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
     print(f"📡 SFA arrancado para sensor '{SENSOR_ID}'")
     yield
-    # Cancelar todos los mocks activos al apagar
     for sensor_id, info in list(_mock_tasks.items()):
         info["stop_event"].set()
         info["task"].cancel()
@@ -155,7 +156,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 
-BASE = "/internal/dashboard/sfa"
+BASE      = "/internal/dashboard/sfa"
 MOCK_BASE = "/internal/dashboard/mock"
 
 
@@ -164,10 +165,6 @@ MOCK_BASE = "/internal/dashboard/mock"
 # ==========================================
 @app.post(f"{MOCK_BASE}/start")
 async def endpoint_mock_start(sensor_id: str = Query(default="s2")):
-    """
-    Arranca el simulador MQTT para el sensor indicado.
-    Por defecto simula 's2'. Se puede usar cualquier sensor_id.
-    """
     if sensor_id in _mock_tasks:
         info = _mock_tasks[sensor_id]
         if not info["task"].done():
@@ -176,7 +173,6 @@ async def endpoint_mock_start(sensor_id: str = Query(default="s2")):
                 "sensor_id": sensor_id,
                 "message": f"El mock para '{sensor_id}' ya está en ejecución.",
             }
-        # La tarea terminó (p.ej. por error), limpiar entrada antigua
         del _mock_tasks[sensor_id]
 
     stop_event = asyncio.Event()
@@ -192,7 +188,6 @@ async def endpoint_mock_start(sensor_id: str = Query(default="s2")):
 
 @app.post(f"{MOCK_BASE}/stop")
 async def endpoint_mock_stop(sensor_id: str = Query(default="s2")):
-    """Detiene el simulador MQTT del sensor indicado."""
     if sensor_id not in _mock_tasks:
         return {
             "status": "not_running",
@@ -218,7 +213,6 @@ async def endpoint_mock_stop(sensor_id: str = Query(default="s2")):
 
 @app.get(f"{MOCK_BASE}/status")
 def endpoint_mock_status():
-    """Devuelve el estado de todos los simuladores activos."""
     result = {}
     for sensor_id, info in _mock_tasks.items():
         result[sensor_id] = {
@@ -229,7 +223,7 @@ def endpoint_mock_status():
 
 
 # ==========================================
-# DATOS
+# DATOS BASE
 # ==========================================
 @app.get(f"{BASE}/sensors")
 def endpoint_sensors():
@@ -349,6 +343,139 @@ def endpoint_clear_alerts(sensor_id: str = Query(...)):
     try:
         deleted = clear_alerts(sensor_id)
         return {"sensor_id": sensor_id, "deleted": deleted, "message": f"{deleted} alerta(s) eliminadas."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# ENDPOINTS EXTENDIDOS
+# ==========================================
+
+@app.get(f"{BASE}/history/aggregated")
+def endpoint_history_aggregated(
+    sensor_id: str = Query(...),
+    variable:  str = Query(...),
+    hours:     int = Query(24, ge=1, le=720),
+):
+    """Historial con downsampling automático. Incluye avg, min, max, stddev por bucket."""
+    try:
+        result = get_history_aggregated(sensor_id, variable, hours)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Variable '{variable}' no reconocida.")
+        if not result["points"]:
+            raise HTTPException(status_code=503, detail="Sin datos en la ventana solicitada.")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/stats")
+def endpoint_stats(
+    sensor_id: str = Query(...),
+    variable:  str = Query(...),
+    hours:     int = Query(24, ge=1, le=720),
+):
+    """Estadísticas globales de una variable: min, max, media, stddev, conteo y último valor."""
+    try:
+        result = get_stats(sensor_id, variable, hours)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Sin datos para '{variable}' en las últimas {hours}h.")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/energy/daily")
+def endpoint_energy_daily(
+    sensor_id: str = Query(...),
+    days:      int = Query(7, ge=1, le=90),
+):
+    """Energía acumulada por día (Ah): generada, consumida y balance neto."""
+    try:
+        result = get_energy_daily(sensor_id, days)
+        if not result:
+            raise HTTPException(status_code=503, detail="Sin datos de energía en el período solicitado.")
+        return {"sensor_id": sensor_id, "days": days, "data": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/energy/balance")
+def endpoint_energy_balance(
+    sensor_id: str = Query(...),
+    hours:     int = Query(24, ge=1, le=720),
+):
+    """Balance energético histórico: generación vs consumo vs neto con downsampling."""
+    try:
+        result = get_energy_balance(sensor_id, hours)
+        if not result["points"]:
+            raise HTTPException(status_code=503, detail="Sin datos de balance en la ventana solicitada.")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/sensors/connectivity")
+def endpoint_connectivity(
+    sensor_ids: str = Query(..., description="IDs separados por coma: s1,s2,s3"),
+):
+    """Estado de conectividad de uno o varios sensores (offline si última lectura > 5 min)."""
+    try:
+        ids = [s.strip() for s in sensor_ids.split(",") if s.strip()]
+        if not ids:
+            raise HTTPException(status_code=422, detail="sensor_ids vacío.")
+        result = get_sensor_connectivity(ids)
+        return {"sensors": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/alerts/history")
+def endpoint_alerts_history(
+    sensor_id: str           = Query(...),
+    page:      int           = Query(1, ge=1),
+    limit:     int           = Query(20, ge=1, le=100),
+    level:     Optional[str] = Query(None, description="warning | critical"),
+    variable:  Optional[str] = Query(None),
+):
+    """Historial completo de alertas paginado, sin límite de 24h. Filtros: level, variable."""
+    try:
+        if level and level not in ("warning", "critical"):
+            raise HTTPException(status_code=422, detail="level debe ser 'warning' o 'critical'.")
+        return get_alerts_history(sensor_id, page, limit, level, variable)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{BASE}/history/multi")
+def endpoint_history_multi(
+    sensor_ids: str = Query(..., description="IDs separados por coma: s1,s2"),
+    variable:   str = Query(...),
+    hours:      int = Query(24, ge=1, le=720),
+):
+    """Historial de una variable para múltiples sensores simultáneamente."""
+    try:
+        ids = [s.strip() for s in sensor_ids.split(",") if s.strip()]
+        if not ids:
+            raise HTTPException(status_code=422, detail="sensor_ids vacío.")
+        result = get_multi_sensor_history(ids, variable, hours)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Variable '{variable}' no reconocida.")
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
