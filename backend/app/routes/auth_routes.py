@@ -20,7 +20,7 @@ class LoginBody(BaseModel):
 
 class RegisterBody(BaseModel):
     username: str
-    name: str  # Corregido: antes decía EmailStr
+    name: str  
     surname: str   
     email: EmailStr
     password: str
@@ -29,7 +29,7 @@ class ForgotBody(BaseModel):
     email: str
 
 class ResetBody(BaseModel):
-    token: str
+    email: str
     new_password: str
 
 # ==========================================
@@ -104,43 +104,47 @@ def endpoint_forgot_password(body: ForgotBody):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            # Solo comprobamos si el email existe
             cur.execute("SELECT id FROM users WHERE email = %s", (body.email.lower().strip(),))
             row = cur.fetchone()
             if not row:
-                return {"message": "Si el email existe, se ha generado un código.", "reset_token": None}
-
-            reset_token = generate_reset_token()
-            expires = datetime.now(timezone.utc) + timedelta(hours=1)
-            cur.execute("UPDATE users SET reset_token = %s, reset_token_expires = %s WHERE id = %s",
-                        (reset_token, expires, row[0]))
-        conn.commit()
+                # Lanzamos un 404 para que el frontend capture el error
+                raise HTTPException(status_code=404, detail="No existe una cuenta con este correo.")
+            
+            # Ya no generamos ni guardamos ningún reset_token
     finally:
         release_conn(conn)
-    return {"message": "Código generado.", "reset_token": reset_token}
+        
+    return {"message": "Email verificado correctamente."}
 
 
 @router.post("/reset-password")
 def endpoint_reset_password(body: ResetBody):
-    if len(body.new_password) < 6:
-        raise HTTPException(status_code=422, detail="Mínimo 6 caracteres.")
+    if len(body.new_password) < 4:
+        raise HTTPException(status_code=422, detail="La contraseña debe tener mínimo 4 caracteres.")
 
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, reset_token_expires FROM users WHERE reset_token = %s", (body.token,))
+            # Buscamos al usuario directamente por su email
+            cur.execute("SELECT id FROM users WHERE email = %s", (body.email.lower().strip(),))
             row = cur.fetchone()
+            
             if not row:
-                raise HTTPException(status_code=400, detail="Código inválido.")
+                raise HTTPException(status_code=404, detail="Usuario no encontrado.")
 
-            user_id, expires = row
-            if expires.tzinfo is None: expires = expires.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) > expires:
-                raise HTTPException(status_code=400, detail="El código ha expirado.")
-
+            user_id = row[0]
             hashed = hash_password(body.new_password[:72])
-            cur.execute("UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = NULL WHERE id = %s",
-                        (hashed, user_id))
+            
+            # Actualizamos la contraseña. (Si tenías columnas de token en la BD, puedes limpiarlas por si acaso)
+            cur.execute("""
+                UPDATE users 
+                SET password_hash = %s, reset_token = NULL, reset_token_expires = NULL 
+                WHERE id = %s
+            """, (hashed, user_id))
+            
         conn.commit()
     finally:
         release_conn(conn)
-    return {"message": "Contraseña actualizada."}
+        
+    return {"message": "Contraseña actualizada con éxito."}
