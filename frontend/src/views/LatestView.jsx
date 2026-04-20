@@ -37,7 +37,7 @@ const getThemeClasses = (theme) => {
   return themes[theme] || themes.indigo;
 };
 
-const TREND_THRESHOLD = 0.05;
+const TREND_THRESHOLD = 0.05; // 5% de cambio para considerar una tendencia significativa
 
 // ─────────────────────────────────────────────────────────────
 // Caché a nivel de módulo: sobrevive cambios de vista mientras

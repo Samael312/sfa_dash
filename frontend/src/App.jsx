@@ -31,6 +31,7 @@ import RegisterView from './views/RegisterView';
 import ForgotPasswordView from './views/ForgotPasswordView';
 import WeatherView from './views/WeatherView';
 import { api } from './services/api';
+import AlertNotifier from './utils/Alertnotifier';
 
 // ==========================================
 // HELPERS DE SESIÓN
@@ -354,6 +355,7 @@ const App = () => {
           </button>
         ))}
       </nav>
+      <AlertNotifier sensorId={selectedSensor} />
     </div>
   );
 };
