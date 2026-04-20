@@ -50,8 +50,8 @@ export const api = {
     return res.data;
   },
 
-  resetPassword: async (token, new_password) => {
-    const res = await axios.post(`${AUTH_BASE}/reset-password`, { token, new_password });
+  resetPassword: async (email, new_password) => {
+    const res = await axios.post(`${AUTH_BASE}/reset-password`, { email, new_password });
     return res.data;
   },
 

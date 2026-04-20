@@ -3,7 +3,7 @@ import { LayoutDashboard, Loader2, User, Mail, Lock, Eye, EyeOff, ArrowLeft, Bad
 import { api } from '../services/api';
 
 const RegisterView = ({ onLogin, onBack }) => {
-  // 1. Expandimos el estado para incluir 'name' y 'surname'
+  // Expandimos el estado para incluir 'name' y 'surname'
   const [form, setForm] = useState({ 
     username: '', 
     name: '', 
@@ -14,8 +14,8 @@ const RegisterView = ({ onLogin, onBack }) => {
   });
   
   const [showPwd, setShowPwd] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
 
   const set = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
@@ -39,7 +39,7 @@ const RegisterView = ({ onLogin, onBack }) => {
     setLoading(true);
     setError(null);
     try {
-      // 2. Enviamos todos los campos al servicio API
+      // Enviamos todos los campos al servicio API
       const res = await api.register(
         username.trim(), 
         name.trim(), 
@@ -62,8 +62,8 @@ const RegisterView = ({ onLogin, onBack }) => {
   const handleKey = (e) => { if (e.key === 'Enter') handleSubmit(); };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center py-6 px-2 overflow-y-auto">
-  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 w-full max-w-md overflow-hidden my-auto shrink-0">
+    <div className="min-h-screen bg-slate-100 flex flex-col items-center py-6 px-2 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 w-full max-w-md overflow-hidden my-auto shrink-0">
         
         {/* Header */}
         <div className="bg-blue-600 px-8 py-6">
@@ -99,74 +99,84 @@ const RegisterView = ({ onLogin, onBack }) => {
             {/* Fila Nombre y Apellidos */}
             <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Nombre</label>
+                    <label htmlFor="name" className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Nombre</label>
                     <input
+                        id="name"
                         type="text"
                         value={form.name}
                         onChange={e => set('name', e.target.value)}
                         placeholder="Ej. Samuel"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                        autoComplete="given-name"
                     />
                 </div>
                 <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Apellidos</label>
+                    <label htmlFor="surname" className="text-xs font-semibold text-gray-500 uppercase block mb-1.5">Apellidos</label>
                     <input
+                        id="surname"
                         type="text"
                         value={form.surname}
                         onChange={e => set('surname', e.target.value)}
                         placeholder="Ej. Ali"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                        autoComplete="family-name"
                     />
                 </div>
             </div>
 
             {/* Usuario */}
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Usuario</label>
+              <label htmlFor="username" className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Usuario</label>
               <div className="relative">
                 <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
+                  id="username"
                   type="text"
                   value={form.username}
                   onChange={e => set('username', e.target.value)}
                   onKeyDown={handleKey}
                   placeholder="nombre_usuario"
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-50 transition-colors"
+                  autoComplete="username"
                 />
               </div>
             </div>
 
             {/* Email */}
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Email</label>
+              <label htmlFor="email" className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Email</label>
               <div className="relative">
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
+                  id="email"
                   type="email"
                   value={form.email}
                   onChange={e => set('email', e.target.value)}
                   onKeyDown={handleKey}
                   placeholder="tu@email.com"
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-50 transition-colors"
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             {/* Contraseña */}
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
+              <label htmlFor="password" className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
                 Contraseña <span className="normal-case font-normal text-gray-400">(máx. 72 car.)</span>
               </label>
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
+                  id="password"
                   type={showPwd ? 'text' : 'password'}
                   value={form.password}
-                  maxLength={72} // 3. Límite de seguridad para evitar error 500
+                  maxLength={72} // Límite de seguridad para evitar error 500
                   onChange={e => set('password', e.target.value)}
                   onKeyDown={handleKey}
                   placeholder="••••••••"
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-10 py-2.5 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-50 transition-colors"
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
@@ -181,10 +191,11 @@ const RegisterView = ({ onLogin, onBack }) => {
 
             {/* Confirmar */}
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Confirmar</label>
+              <label htmlFor="confirm" className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Confirmar</label>
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
+                  id="confirm"
                   type={showPwd ? 'text' : 'password'}
                   value={form.confirm}
                   maxLength={72}
@@ -196,6 +207,7 @@ const RegisterView = ({ onLogin, onBack }) => {
                       ? 'border-red-300 focus:border-red-400 focus:ring-red-50'
                       : 'border-gray-300 focus:border-blue-400 focus:ring-blue-50'
                     }`}
+                  autoComplete="new-password"
                 />
               </div>
             </div>

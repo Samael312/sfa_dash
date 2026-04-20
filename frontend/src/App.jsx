@@ -17,17 +17,20 @@ import {
   Loader2,
   FlaskConical,
   CircleStop,
+  Menu,
+  X,
+  Zap
 } from 'lucide-react';
 
-import LatestView         from './views/LatestView';
-import StatusView         from './views/StatusView';
-import HistoryView        from './views/HistoryView';
-import AlertRulesView     from './views/Alertrulesview';
-import LoginView          from './views/LoginView';
-import RegisterView       from './views/RegisterView';
+import LatestView from './views/LatestView';
+import StatusView from './views/StatusView';
+import HistoryView from './views/HistoryView';
+import AlertRulesView from './views/Alertrulesview';
+import LoginView from './views/LoginView';
+import RegisterView from './views/RegisterView';
 import ForgotPasswordView from './views/ForgotPasswordView';
-import WeatherView        from './views/WeatherView';
-import { api }            from './services/api';
+import WeatherView from './views/WeatherView';
+import { api } from './services/api';
 
 // ==========================================
 // HELPERS DE SESIÓN
@@ -35,7 +38,7 @@ import { api }            from './services/api';
 const getStoredUser = () => {
   try {
     const token = localStorage.getItem('sfa_token');
-    const raw   = localStorage.getItem('sfa_user');
+    const raw = localStorage.getItem('sfa_user');
     if (!token || !raw) return null;
     const payload = JSON.parse(atob(token.split('.')[1]));
     const now = Math.floor(Date.now() / 1000);
@@ -45,89 +48,18 @@ const getStoredUser = () => {
       return null;
     }
     return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return null;
+  } catch { return null; }
 };
 
 // ==========================================
-// SENSOR SELECTOR
-// ==========================================
-const SensorSelector = ({ sensors, selected, onChange, loading }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        disabled={loading}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200
-                   bg-white hover:border-blue-300 hover:bg-blue-50 transition-colors
-                   text-sm font-medium text-gray-700 min-w-[110px]"
-      >
-        <Activity size={14} className="text-blue-500 flex-shrink-0" />
-        {loading ? (
-          <span className="flex items-center gap-1.5 text-gray-400">
-            <Loader2 size={12} className="animate-spin" /> …
-          </span>
-        ) : (
-          <span className="flex-1 text-left">{selected || 'Sensor'}</span>
-        )}
-        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && !loading && (
-        <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-lg
-                        border border-gray-200 py-1 z-50 max-h-64 overflow-y-auto">
-          {sensors.length === 0 ? (
-            <div className="px-4 py-3 text-xs text-gray-400 text-center">
-              Sin sensores disponibles
-            </div>
-          ) : (
-            sensors.map(s => (
-              <button
-                key={s}
-                onClick={() => { onChange(s); setOpen(false); }}
-                className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2
-                  hover:bg-gray-50 transition-colors
-                  ${selected === s
-                    ? 'bg-blue-50 text-blue-700 font-semibold border-l-2 border-blue-500'
-                    : 'text-gray-700'}`}
-              >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0
-                  ${selected === s ? 'bg-blue-500' : 'bg-gray-300'}`} />
-                {s}
-                {selected === s && (
-                  <span className="ml-auto text-xs text-blue-500 font-normal">activo</span>
-                )}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ==========================================
-// MOCK TOGGLE BUTTON
+// COMPONENTE: MOCK TOGGLE (SIMULADOR)
 // ==========================================
 const MockToggle = ({ onSensorAppear }) => {
   const MOCK_SENSOR = 's2';
-
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tooltip, setTooltip] = useState('');
 
-  // Al montar, consultar si ya hay un mock activo
   useEffect(() => {
     api.getMockStatus()
       .then(res => {
@@ -144,19 +76,18 @@ const MockToggle = ({ onSensorAppear }) => {
       if (running) {
         await api.stopMock(MOCK_SENSOR);
         setRunning(false);
-        setTooltip(`Simulador ${MOCK_SENSOR} detenido`);
+        setTooltip(`Simulador detenido`);
       } else {
         await api.startMock(MOCK_SENSOR);
         setRunning(true);
-        setTooltip(`Simulador ${MOCK_SENSOR} iniciado — datos en ~10 s`);
-        // Refrescar lista de sensores tras el primer ciclo de publicación
+        setTooltip(`Iniciado (espera 10s)`);
         setTimeout(() => onSensorAppear?.(), 12000);
       }
     } catch {
-      setTooltip('Error al controlar el simulador');
+      setTooltip('Error de control');
     } finally {
       setLoading(false);
-      setTimeout(() => setTooltip(''), 4000);
+      setTimeout(() => setTooltip(''), 3000);
     }
   };
 
@@ -165,37 +96,27 @@ const MockToggle = ({ onSensorAppear }) => {
       <button
         onClick={handleToggle}
         disabled={loading}
-        title={running
-          ? `Detener simulador ${MOCK_SENSOR}`
-          : `Iniciar simulador ${MOCK_SENSOR}`}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold
-          transition-all disabled:opacity-50 disabled:cursor-not-allowed
+        className={`flex items-center gap-2 px-2 sm:px-3 py-2 rounded-xl border text-xs 
+          transition-all disabled:opacity-50 shadow-sm
           ${running
-            ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
-            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700'
+            ? 'bg-amber-50 border-amber-200 text-amber-700'
+            : 'bg-white border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-600'
           }`}
       >
         {loading ? (
-          <Loader2 size={13} className="animate-spin" />
+          <Loader2 size={14} className="animate-spin" />
         ) : running ? (
-          <CircleStop size={13} />
+          <CircleStop size={14} className="text-amber-600" />
         ) : (
-          <FlaskConical size={13} />
+          <FlaskConical size={14} />
         )}
-        <span className="hidden sm:inline">
-          Mock {MOCK_SENSOR}
-        </span>
-        {running && !loading && (
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-        )}
+        <span className="hidden sm:inline">Mock {MOCK_SENSOR}</span>
+        {running && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
       </button>
 
       {tooltip && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5
-                        bg-gray-800 text-white text-xs rounded-lg shadow-lg whitespace-nowrap
-                        pointer-events-none z-50">
+        <div className="absolute top-full right-0 mt-2 px-3 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg shadow-xl z-50 whitespace-nowrap animate-in fade-in zoom-in-95">
           {tooltip}
-          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-800 rotate-45" />
         </div>
       )}
     </div>
@@ -203,28 +124,61 @@ const MockToggle = ({ onSensorAppear }) => {
 };
 
 // ==========================================
-// APP PRINCIPAL
+// COMPONENTE: SENSOR SELECTOR
 // ==========================================
-const App = () => {
-  const [user, setUser]         = useState(getStoredUser);
-  const [authView, setAuthView] = useState('login');
-  const [activeView, setActiveView] = useState('Latest');
-  const [openMenu, setOpenMenu]     = useState(null);
-  const navRef = useRef(null);
-
-  const [sensors, setSensors]               = useState([]);
-  const [selectedSensor, setSelectedSensor] = useState(
-    () => localStorage.getItem('sfa_selected_sensor') || 's1'
-  );
-  const [loadingSensors, setLoadingSensors] = useState(false);
+const SensorSelector = ({ sensors, selected, onChange, loading }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
 
   useEffect(() => {
-    const handler = (e) => {
-      if (navRef.current && !navRef.current.contains(e.target)) setOpenMenu(null);
-    };
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        disabled={loading}
+        className="flex items-center gap-2 px-2 sm:px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-all text-sm font-medium text-gray-700 shadow-sm min-w-[70px] sm:min-w-[90px]"
+      >
+        <Activity size={16} className="text-blue-500 flex-shrink-0" />
+        <span className="truncate">{loading ? '...' : selected}</span>
+        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-[100] animate-in fade-in slide-in-from-top-2">
+          {sensors.map(s => (
+            <button
+              key={s}
+              onClick={() => { onChange(s); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-blue-50 transition-colors ${selected === s ? 'text-blue-700 font-semibold bg-blue-50/50' : 'text-gray-600'}`}
+            >
+              <div className={`w-2 h-2 rounded-full ${selected === s ? 'bg-blue-500' : 'bg-gray-200'}`} />
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
+// COMPONENTE PRINCIPAL: APP
+// ==========================================
+const App = () => {
+  const [user, setUser] = useState(getStoredUser);
+  const [authView, setAuthView] = useState('login');
+  const [activeView, setActiveView] = useState('Latest');
+  const [openMenu, setOpenMenu] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sensors, setSensors] = useState([]);
+  const [selectedSensor, setSelectedSensor] = useState(() => localStorage.getItem('sfa_selected_sensor') || 's1');
+  const [loadingSensors, setLoadingSensors] = useState(false);
+  const navRef = useRef(null);
 
   const refreshSensors = useCallback(() => {
     if (!user) return;
@@ -233,202 +187,173 @@ const App = () => {
       .then(res => {
         const list = res?.sensors ?? [];
         setSensors(list);
-        if (list.length > 0 && !list.includes(selectedSensor)) {
-          setSelectedSensor(list[0]);
-        }
+        if (list.length > 0 && !list.includes(selectedSensor)) setSelectedSensor(list[0]);
       })
-      .catch(() => {})
       .finally(() => setLoadingSensors(false));
   }, [user, selectedSensor]);
 
   useEffect(() => { refreshSensors(); }, [user]);
 
-  const handleSensorChange = (s) => {
-    setSelectedSensor(s);
-    localStorage.setItem('sfa_selected_sensor', s);
-  };
-
-  const handleLogin = (userData) => { setUser(userData); setAuthView('login'); };
   const handleLogout = () => {
     localStorage.removeItem('sfa_token');
     localStorage.removeItem('sfa_user');
     setUser(null);
     setActiveView('Latest');
-    setSensors([]);
   };
 
   if (!user) {
-    if (authView === 'register')
-      return <RegisterView onLogin={handleLogin} onBack={() => setAuthView('login')} />;
-    if (authView === 'forgot')
-      return <ForgotPasswordView onBack={() => setAuthView('login')} />;
-    return (
-      <LoginView
-        onLogin={handleLogin}
-        onRegister={() => setAuthView('register')}
-        onForgot={() => setAuthView('forgot')}
-      />
-    );
+    if (authView === 'register') return <RegisterView onLogin={setUser} onBack={() => setAuthView('login')} />;
+    if (authView === 'forgot') return <ForgotPasswordView onBack={() => setAuthView('login')} />;
+    return <LoginView onLogin={setUser} onRegister={() => setAuthView('register')} onForgot={() => setAuthView('forgot')} />;
   }
 
-  const renderContent = () => {
-    const props = { sensorId: selectedSensor };
-    switch (activeView) {
-      case 'Latest':     return <LatestView     {...props} />;
-      case 'Status':     return <StatusView     {...props} onNavigate={setActiveView} />;
-      case 'History':    return <HistoryView    {...props} />;
-      case 'AlertRules': return <AlertRulesView {...props} />;
-      case 'Weather':    return <WeatherView    {...props} />;
-      default:           return <LatestView     {...props} />;
-    }
-  };
-
   const menuStructure = [
-    {
-      title: 'Recientes', icon: <Wifi size={18} />,
-      items: [{ label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> }],
-    },
-    {
-      title: 'Estado', icon: <Cpu size={18} />,
-      items: [{ label: 'Variables', id: 'Status', icon: <Server size={16} /> }],
-    },
-    {
-      title: 'Historial', icon: <FileCode size={18} />,
-      items: [{ label: 'Historial', id: 'History', icon: <Info size={16} /> }],
-    },
-    {
-      title: 'Alertas', icon: <Bell size={18} />,
-      items: [{ label: 'Configurar umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> }],
-    },
-    {
-      title: 'Clima', icon: <Sun size={18} />,
-      items: [{ label: 'Predicción del tiempo', id: 'Weather', icon: <Sun size={16} /> }],
-    },
+    { title: 'Recientes', icon: <Wifi size={18} />, items: [{ label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> }] },
+    { title: 'Estado', icon: <Cpu size={18} />, items: [{ label: 'Variables', id: 'Status', icon: <Server size={16} /> }] },
+    { title: 'Historial', icon: <FileCode size={18} />, items: [{ label: 'Historial', id: 'History', icon: <Info size={16} /> }] },
+    { title: 'Alertas', icon: <Bell size={18} />, items: [{ label: 'Umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> }] },
+    { title: 'Clima', icon: <Sun size={18} />, items: [{ label: 'Predicción', id: 'Weather', icon: <Sun size={16} /> }] },
   ];
 
   const activeItem = menuStructure.flatMap(m => m.items).find(i => i.id === activeView);
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900 flex flex-col w-full">
-
+    <div className="min-h-screen bg-slate-100 flex flex-col w-full pb-20 md:pb-0">
+      
       {/* NAVBAR */}
-      <nav ref={navRef} className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50 w-full">
-        <div className="w-full px-6">
-          <div className="flex justify-between h-16">
-
-            {/* Logo + menú */}
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center text-blue-600 font-bold text-xl tracking-tight mr-8">
-                <LayoutDashboard className="mr-2" size={24} />
-                SFA Dashboard
-              </div>
-
-              <div className="hidden md:flex md:space-x-4 h-full items-center">
-                {menuStructure.map((menu, index) => (
-                  <div key={index} className="relative h-full flex items-center">
-                    <button
-                      onClick={() => setOpenMenu(openMenu === index ? null : index)}
-                      className={`inline-flex items-center px-3 py-2 border border-transparent
-                        text-sm font-medium rounded-md transition-colors
-                        ${openMenu === index
-                          ? 'text-blue-600 bg-blue-50'
-                          : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}
-                    >
-                      {menu.icon}
-                      <span className="ml-2">{menu.title}</span>
-                      <ChevronDown size={14} className={`ml-1 transition-transform duration-200
-                        ${openMenu === index ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {openMenu === index && (
-                      <div className="absolute top-14 left-0 w-56 bg-white rounded-md shadow-lg
-                                      ring-1 ring-black ring-opacity-5 py-1 z-50">
-                        {menu.items.map(item => (
-                          <button
-                            key={item.id}
-                            onClick={() => { setActiveView(item.id); setOpenMenu(null); }}
-                            className={`w-full text-left px-4 py-3 text-sm flex items-center
-                              hover:bg-gray-50 transition-colors
-                              ${activeView === item.id
-                                ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600'
-                                : 'text-gray-700'}`}
-                          >
-                            <span className="mr-3 text-gray-400">{item.icon}</span>
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+      <nav ref={navRef} className="bg-white border-b border-gray-200 sticky top-0 z-[100] w-full shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+              <Menu size={24} />
+            </button>
+            <div className="flex items-center text-blue-600 font-black text-xl tracking-tighter">
+              <Zap className="mr-1 sm:mr-2" size={22} fill="currentColor" />
+              SFA<span className="text-gray-400 font-light ml-1 hidden xs:inline">Dash</span>
             </div>
 
-            {/* Zona derecha */}
-            <div className="flex items-center gap-2">
-
-              {/* Mock toggle */}
-              <MockToggle onSensorAppear={refreshSensors} />
-
-              <div className="w-px h-6 bg-gray-200 mx-1" />
-
-              {/* Sensor selector */}
-              <SensorSelector
-                sensors={sensors}
-                selected={selectedSensor}
-                onChange={handleSensorChange}
-                loading={loadingSensors}
-              />
-
-              {/* Badge conexión */}
-              <span className="px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs
-                               font-semibold border border-green-200 items-center gap-2
-                               hidden lg:flex">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                Connected
-              </span>
-
-              {/* Badge usuario */}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg
-                              bg-gray-50 border border-gray-200">
-                <UserCircle2 size={16} className="text-gray-400" />
-                <span className="text-sm text-gray-700 font-medium max-w-[100px] truncate">
-                  {user.name}
-                </span>
-              </div>
-
-              {/* Logout */}
-              <button
-                onClick={handleLogout}
-                title="Cerrar sesión"
-                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600
-                           border border-gray-200 hover:border-red-200 hover:bg-red-50
-                           px-3 py-1.5 rounded-lg transition-colors"
-              >
-                <LogOut size={15} />
-                <span className="hidden sm:inline">Salir</span>
-              </button>
+            {/* Desktop Menu */}
+            <div className="hidden md:flex ml-6 space-x-1">
+              {menuStructure.map((menu, idx) => (
+                <div key={idx} className="relative">
+                  <button
+                    onClick={() => setOpenMenu(openMenu === idx ? null : idx)}
+                    className={`flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-all ${openMenu === idx ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    {menu.title} <ChevronDown size={14} className="ml-1" />
+                  </button>
+                  {openMenu === idx && (
+                    <div className="absolute top-12 left-0 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 animate-in slide-in-from-top-2">
+                      {menu.items.map(item => (
+                        <button
+                          key={item.id}
+                          onClick={() => { setActiveView(item.id); setOpenMenu(null); }}
+                          className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-blue-50 transition-colors ${activeView === item.id ? 'text-blue-700 font-medium' : 'text-gray-600'}`}
+                        >
+                          {item.icon} {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:gap-4">
+            <MockToggle onSensorAppear={refreshSensors} />
+            <SensorSelector 
+              sensors={sensors} 
+              selected={selectedSensor} 
+              onChange={(s) => { setSelectedSensor(s); localStorage.setItem('sfa_selected_sensor', s); }} 
+              loading={loadingSensors} 
+            />
+            <button 
+              onClick={handleLogout} 
+              title="Cerrar sesión"
+              className="flex p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </nav>
 
-      {/* CONTENIDO */}
-      <main className="flex-1 w-full max-w-none px-6 py-6">
-        <div className="mb-6 border-b border-gray-200 pb-2 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            {activeItem?.icon}
-            {activeItem?.label || 'Dashboard'}
-          </h2>
-          <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200
-                           px-3 py-1 rounded-full flex items-center gap-1.5">
-            <Activity size={11} />
-            Sensor: <span className="font-bold ml-1">{selectedSensor}</span>
-          </span>
-        </div>
+      {/* MOBILE SIDEBAR */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-[110] md:hidden">
+          <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />
+          <div className="absolute top-0 left-0 bottom-0 w-72 bg-white shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-blue-600 text-white font-black text-xl tracking-tight">
+              SFA DASHBOARD
+              <button onClick={() => setIsSidebarOpen(false)} className="hover:bg-blue-700 p-1 rounded-lg transition-colors"><X size={24} /></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {menuStructure.map((sec, idx) => (
+                <div key={idx}>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4 mb-2">{sec.title}</p>
+                  {sec.items.map(i => (
+                    <button
+                      key={i.id}
+                      onClick={() => { setActiveView(i.id); setIsSidebarOpen(false); }}
+                      className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeView === i.id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      {i.icon} {i.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
 
-        <div className="w-full">{renderContent()}</div>
+            {/* BOTÓN DE LOGOUT MÓVIL */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 mt-auto">
+              <button
+                onClick={() => { handleLogout(); setIsSidebarOpen(false); }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-red-600 bg-red-100 hover:bg-red-200 transition-all"
+              >
+                <LogOut size={18} /> Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 w-full px-4 sm:px-6 py-8 max-w-7xl mx-auto">
+        <header className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-blue-600 mb-1 font-black text-[10px] uppercase tracking-widest">
+              {activeItem?.icon} {activeItem?.label}
+            </div>
+            <h2 className="text-3xl font-black text-slate-800 tracking-tight">Panel de Control</h2>
+          </div>
+          <div className="bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+             <span className="text-xs font-medium text-slate-400">SENSOR CONECTADO:</span>
+             <span className="text-xs font-black text-blue-600 uppercase">{selectedSensor}</span>
+          </div>
+        </header>
+
+        <section className="animate-in fade-in duration-500">
+          {activeView === 'Latest' && <LatestView sensorId={selectedSensor} />}
+          {activeView === 'Status' && <StatusView sensorId={selectedSensor} onNavigate={setActiveView} />}
+          {activeView === 'History' && <HistoryView sensorId={selectedSensor} />}
+          {activeView === 'AlertRules' && <AlertRulesView sensorId={selectedSensor} />}
+          {activeView === 'Weather' && <WeatherView sensorId={selectedSensor} />}
+        </section>
       </main>
+
+      {/* MOBILE BOTTOM NAV */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-2 flex justify-around items-center z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe">
+        {menuStructure.slice(0, 4).map((m) => (
+          <button key={m.items[0].id} onClick={() => setActiveView(m.items[0].id)} className={`flex flex-col items-center p-2 rounded-xl transition-all ${activeView === m.items[0].id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>
+            {m.icon}
+            <span className="text-[9px] font-medium mt-1 uppercase tracking-tighter">{m.title}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 };

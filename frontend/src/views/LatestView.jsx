@@ -1,38 +1,83 @@
+/**
+ * LatestView.jsx
+ * --------------
+ * Panel de última telemetría del nodo con indicadores de tendencia.
+ * Estilo: Premium, Modern SaaS (Curvas suaves, paleta apastelada, sombras sutiles).
+ */
+
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../services/api';
-import { Loader2, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { 
+  Loader2, RefreshCw, TrendingUp, TrendingDown, Minus,
+  Sun, Thermometer, Zap, Battery, Cpu, Plug, 
+  BarChart3, AlertTriangle, Clock
+} from 'lucide-react';
 
 const VARIABLES = [
-  { key: 'radiacion',      label: 'Radiación solar',    unit: 'W/m²', color: 'border-yellow-400', text: 'text-yellow-600' },
-  { key: 'temp_amb', label: 'Temp. ambiente',     unit: '°C',   color: 'border-red-400',    text: 'text-red-600'    },
-  { key: 'i_generada',   label: 'Corriente generada', unit: 'A',    color: 'border-green-400',  text: 'text-green-600'  },
-  { key: 'v_bateria',      label: 'Tensión batería',    unit: 'V',    color: 'border-blue-400',   text: 'text-blue-600'   },
-  { key: 'temp_pan',    label: 'Temperatura panel',  unit: '°C',    color: 'border-purple-400', text: 'text-purple-600' },
-  { key: 'i_carga',      label: 'Corriente carga',    unit: 'A',    color: 'border-cyan-400',   text: 'text-cyan-600'   },
-  { key: 'temp_bat',  label: 'Temp. batería',      unit: '°C',   color: 'border-orange-400', text: 'text-orange-600' },
+  { key: 'radiacion',  label: 'Radiación solar', unit: 'W/m²', color: "text-amber-600",   icon: Sun,         colorTheme: 'amber'   },
+  { key: 'temp_amb',   label: 'Temp. ambiente',  unit: '°C',   color: "text-rose-600",    icon: Thermometer, colorTheme: 'rose'    },
+  { key: 'i_generada', label: 'Corr. generada',  unit: 'A',    color: "text-emerald-600", icon: Zap,         colorTheme: 'emerald' },
+  { key: 'v_bateria',  label: 'Tensión batería', unit: 'V',    color: "text-indigo-600",  icon: Battery,     colorTheme: 'indigo'  },
+  { key: 'temp_pan',   label: 'Temp. panel',     unit: '°C',   color: "text-purple-600",  icon: Cpu,         colorTheme: 'purple'  },
+  { key: 'i_carga',    label: 'Corr. carga',     unit: 'A',    color: "text-cyan-600",    icon: Plug,        colorTheme: 'cyan'    },
+  { key: 'temp_bat',   label: 'Temp. batería',   unit: '°C',   color: "text-orange-600",  icon: Thermometer, colorTheme: 'orange'  },
 ];
+
+// Helper para extraer clases tailwind dinámicas por tema de color
+const getThemeClasses = (theme) => {
+  const themes = {
+    amber:   { bg: 'bg-amber-50',   text: 'text-amber-600',   icon: 'text-amber-500',   border: 'border-amber-100' },
+    rose:    { bg: 'bg-rose-50',    text: 'text-rose-600',    icon: 'text-rose-500',    border: 'border-rose-100' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'text-emerald-500', border: 'border-emerald-100' },
+    indigo:  { bg: 'bg-indigo-50',  text: 'text-indigo-600',  icon: 'text-indigo-500',  border: 'border-indigo-100' },
+    purple:  { bg: 'bg-purple-50',  text: 'text-purple-600',  icon: 'text-purple-500',  border: 'border-purple-100' },
+    cyan:    { bg: 'bg-cyan-50',    text: 'text-cyan-600',    icon: 'text-cyan-500',    border: 'border-cyan-100' },
+    orange:  { bg: 'bg-orange-50',  text: 'text-orange-600',  icon: 'text-orange-500',  border: 'border-orange-100' },
+  };
+  return themes[theme] || themes.indigo;
+};
 
 // Umbral mínimo de cambio para considerar tendencia (evita ruido)
 const TREND_THRESHOLD = 0.05;
 
-const TrendIcon = ({ current, previous }) => {
-  if (previous === null || previous === undefined) return null;
+const TrendIndicator = ({ current, previous, unit, color }) => {
+  if (previous === null || previous === undefined) {
+    return <span className={`${color} text-xs font-medium`}>Sin datos previos</span>;
+  }
+  
   const delta = current - previous;
   const pct   = previous !== 0 ? Math.abs(delta / previous) : Math.abs(delta);
 
-  if (pct < TREND_THRESHOLD) return <Minus size={14} className="text-gray-400" />;
-  if (delta > 0) return <TrendingUp  size={14} className="text-green-500" />;
-  return             <TrendingDown size={14} className="text-red-400" />;
+  if (pct < TREND_THRESHOLD) {
+    return (
+      <div className="flex items-center gap-1.5 text-slate-400">
+        <Minus size={16} strokeWidth={2.5} />
+        <span className="text-xs font-semibold">Estable</span>
+      </div>
+    );
+  }
+
+  const isUp = delta > 0;
+  return (
+    <div className={`flex items-center gap-1.5 ${isUp ? 'text-emerald-500' : 'text-rose-500'}`}>
+      {isUp ? <TrendingUp size={16} strokeWidth={2.5} /> : <TrendingDown size={16} strokeWidth={2.5} />}
+      <span className="text-xs font-semibold">
+        {isUp ? '+' : ''}{(delta).toFixed(2)} {unit}
+      </span>
+    </div>
+  );
 };
 
 const LatestView = ({ sensorId = 's1' }) => {
   const [data, setData]       = useState(null);
-  const [prev, setPrev]       = useState(null);   // lectura anterior para tendencia
+  const [prev, setPrev]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const prevRef               = useRef(null);
 
-  const load = async () => {
+  const load = async (manual = false) => {
+    if (manual) setIsRefreshing(true);
     setError(null);
     try {
       const res = await api.getSFALatest(sensorId);
@@ -43,6 +88,7 @@ const LatestView = ({ sensorId = 's1' }) => {
       setError('Error al cargar los datos. Comprueba la conexión.');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -51,120 +97,154 @@ const LatestView = ({ sensorId = 's1' }) => {
     setPrev(null);
     setLoading(true);
     load();
-    const interval = setInterval(load, 10000);
+    const interval = setInterval(() => load(false), 10000);
     return () => clearInterval(interval);
   }, [sensorId]);
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="animate-spin text-blue-500" size={40} />
+  if (loading && !data) return (
+    <div className="flex flex-col items-center justify-center h-96 bg-slate-50/50 rounded-3xl border border-dashed border-slate-200 animate-in fade-in m-4 md:m-6">
+      <Loader2 className="animate-spin text-indigo-500 mb-4" size={40} />
+      <p className="text-sm text-slate-500 font-medium tracking-tight animate-pulse">
+        Obteniendo últimas métricas...
+      </p>
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 w-full mx-auto p-4 md:p-6 text-slate-800 font-sans animate-in fade-in duration-500">
 
-      {/* Cabecera */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-gray-400 uppercase">Sensor</span>
-          <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-            {sensorId}
-          </span>
-          <span className="text-sm text-gray-400">
-            Última actualización:{' '}
-            {data?.timestamp ? new Date(data.timestamp).toLocaleString('es-ES') : '—'}
-          </span>
+      {/* CABECERA ESTILIZADA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 bg-white p-6 border border-slate-100 shadow-sm rounded-2xl">
+        <div className="flex items-center gap-5">
+          <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm border border-indigo-100/50">
+            <BarChart3 size={26} strokeWidth={1.5} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Telemetría Reciente</h2>
+            <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
+              <span>Nodo activo:</span>
+              <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-mono text-xs">
+                {sensorId}
+              </span>
+            </div>
+          </div>
         </div>
-        <button
-          onClick={load}
-          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          <RefreshCw size={14} />
-          Actualizar
-        </button>
+
+        <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+          {data?.timestamp && (
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+              <Clock size={14} />
+              {new Date(data.timestamp).toLocaleString('es-ES', { 
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+              })}
+            </div>
+          )}
+          <button
+            onClick={() => load(true)}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white transition-colors disabled:opacity-50 rounded-xl shadow-sm shadow-indigo-200 flex-1 sm:flex-none justify-center"
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Actualizando' : 'Actualizar'}
+          </button>
+        </div>
       </div>
 
-      {/* Error */}
+      {/* ERROR BANNER */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded">
-          {error}
+        <div className="bg-white border border-rose-100 p-5 flex items-center gap-4 text-rose-700 shadow-sm rounded-2xl animate-in slide-in-from-top-2">
+          <div className="p-2 bg-rose-50 rounded-full">
+            <AlertTriangle size={20} className="text-rose-500" />
+          </div>
+          <p className="text-sm font-medium">{error}</p>
         </div>
       )}
 
-      {/* KPI cards con tendencia */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+      {/* KPI CARDS CON TENDENCIA */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {VARIABLES.map(v => {
           const current  = data?.[v.key];
           const previous = prev?.[v.key];
+          const color    = v.color;
+          const theme    = getThemeClasses(v.colorTheme);
+          const Icon     = v.icon;
 
           return (
-            <div key={v.key} className={`bg-white p-5 rounded shadow border-l-4 ${v.color}`}>
-              <span className="text-gray-500 text-xs font-bold uppercase leading-tight block">
-                {v.label}
-              </span>
-              <div className="mt-3 flex items-end gap-1">
-                <span className={`text-3xl font-bold ${v.text}`}>
+            <div key={v.key} className="bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 flex justify-between items-start">
+                <span className={`text-sm font-semibold ${color} leading-tight`}>
+                  {v.label}
+                </span>
+                <div className={`p-2 rounded-xl ${theme.bg}`}>
+                  <Icon size={18} className={theme.icon} strokeWidth={2} />
+                </div>
+              </div>
+              
+              <div className="px-5 pb-2 flex items-baseline gap-1.5">
+                <span className={`text-3xl font-bold tracking-tight ${color}`}>
                   {current ?? '—'}
                 </span>
-                <span className="text-sm text-gray-400 mb-1">{v.unit}</span>
+                <span className={`text-sm font-medium ${color}`}>{v.unit}</span>
               </div>
-              {/* Indicador de tendencia */}
-              <div className="mt-2 flex items-center gap-1">
-                <TrendIcon current={current} previous={previous} />
-                {previous !== null && previous !== undefined && (
-                  <span className="text-xs text-gray-400">
-                    {current > previous ? '+' : ''}
-                    {(current - previous).toFixed(2)} {v.unit}
-                  </span>
-                )}
+              
+              <div className="px-5 py-3 mt-auto border-t border-slate-50 bg-slate-50/30">
+                <TrendIndicator current={current} previous={previous} unit={v.unit} />
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Tabla resumen */}
-      <div className="bg-white rounded shadow border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-bold text-gray-700 uppercase">Resumen de medición</h3>
+      {/* TABLA RESUMEN */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-800">Resumen Analítico</h3>
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-            <tr>
-              <th className="px-6 py-3 text-left">Variable</th>
-              <th className="px-6 py-3 text-right">Valor</th>
-              <th className="px-6 py-3 text-right">Tendencia</th>
-              <th className="px-6 py-3 text-right">Unidad</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {VARIABLES.map(v => {
-              const current  = data?.[v.key];
-              const previous = prev?.[v.key];
-              return (
-                <tr key={v.key} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-3 font-medium text-gray-700">{v.label}</td>
-                  <td className={`px-6 py-3 text-right font-bold ${v.text}`}>
-                    {current ?? '—'}
-                  </td>
-                  <td className="px-6 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <TrendIcon current={current} previous={previous} />
-                      {previous !== null && previous !== undefined && (
-                        <span className="text-xs text-gray-400">
-                          {current > previous ? '+' : ''}
-                          {(current - previous).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-3 text-right text-gray-400">{v.unit}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-100">
+              <tr>
+                <th className="px-6 py-4 whitespace-nowrap">Variable</th>
+                <th className="px-6 py-4 text-right whitespace-nowrap">Valor Actual</th>
+                <th className="px-6 py-4 text-right whitespace-nowrap">Tendencia (Δ)</th>
+                <th className="px-6 py-4 text-right whitespace-nowrap">Unidad</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {VARIABLES.map(v => {
+                const current  = data?.[v.key];
+                const previous = prev?.[v.key];
+                const theme    = getThemeClasses(v.colorTheme);
+                const Icon     = v.icon;
+
+                return (
+                  <tr key={v.key} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-700 flex items-center gap-3">
+                      <div className={`p-1.5 rounded-lg ${theme.bg}`}>
+                        <Icon size={16} className={theme.icon} />
+                      </div>
+                      {v.label}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <span className="font-bold text-slate-900 text-base">
+                        {current ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex justify-end">
+                        <TrendIndicator current={current} previous={previous} unit="" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-400">
+                      {v.unit}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>

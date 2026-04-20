@@ -116,6 +116,7 @@ def get_status(sensor_id: str) -> dict:
         "connected":        True,
         "sensor_id":        sensor_id,
         "last_update":      latest["timestamp"],
+        "i_generada":       latest.get("i_generada"),
         "battery_percent":  soc_pct,
         "solar_generating": (latest.get("radiacion") or 0) > 50,
         "active_alerts":    len(alerts),
