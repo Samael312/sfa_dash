@@ -5,6 +5,7 @@ API FastAPI del dashboard SFA — con autenticación JWT y WebSocket en tiempo r
 """
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -212,7 +213,13 @@ async def websocket_endpoint(websocket: WebSocket, sensor_id: str):
     await ws_manager.connect(websocket, sensor_id)
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except Exception:
+                pass
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, sensor_id)
     except Exception:

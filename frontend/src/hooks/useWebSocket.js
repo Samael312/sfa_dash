@@ -42,12 +42,22 @@ const useWebSocket = (sensorId) => {
     const ws  = new WebSocket(url);
     wsRef.current = ws;
 
+    const pingRef = useRef(null);
+
     ws.onopen = () => {
       if (!mountedRef.current) return;
       reconnectsRef.current = 0;
       setConnected(true);
       console.log(`🔌 WS conectado: sensor=${sensorId}`);
+      // Heartbeat cada 30s para mantener viva la conexión en Railway
+      pingRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30_000);
     };
+
+    
 
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
@@ -70,6 +80,7 @@ const useWebSocket = (sensorId) => {
     };
 
     ws.onclose = (event) => {
+      clearInterval(pingRef.current);
       if (!mountedRef.current) return;
       setConnected(false);
       console.log(`🔌 WS cerrado: code=${event.code} sensor=${sensorId}`);
@@ -91,14 +102,15 @@ const useWebSocket = (sensorId) => {
     connect();
 
     return () => {
-      mountedRef.current = false;
-      clearTimeout(timeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null; // evitar reconexión al desmontar
-        wsRef.current.close();
-      }
-      setConnected(false);
-    };
+       mountedRef.current = false;
+        clearTimeout(timeoutRef.current);
+        clearInterval(pingRef.current);   
+        if (wsRef.current) {
+          wsRef.current.onclose = null;
+          wsRef.current.close();
+        }
+        setConnected(false);
+      };
   }, [connect]);
 
   return { readings, connected, lastUpdate };

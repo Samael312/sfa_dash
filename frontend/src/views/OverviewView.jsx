@@ -83,6 +83,14 @@ const MiniTrend = ({ current, previous }) => {
     : <TrendingDown size={12} className="text-rose-500" />;
 };
 
+const formatAge = (seconds) => {
+  if (seconds == null || seconds < 0) return 'ahora mismo';
+  if (seconds < 60)    return `${seconds}s`;
+  if (seconds < 3600)  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+};
+
 // ── Tarjeta de sensor conectividad ────────────────────────────
 const ConnectivityBadge = ({ sensor }) => (
   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border
@@ -327,7 +335,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
               <div key={s.sensor_id} className="text-xs text-slate-400">
                 <span className="font-bold text-slate-600">{s.sensor_id}</span>
                 {s.last_seen
-                  ? ` · Último dato: ${Math.floor((s.seconds_ago ?? 0) / 60)}m ${(s.seconds_ago ?? 0) % 60}s`
+                  ? ` · Último dato: ${formatAge(s.seconds_ago)}`
                   : ' · Sin datos'}
               </div>
             ))}

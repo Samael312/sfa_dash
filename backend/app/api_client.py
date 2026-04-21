@@ -381,7 +381,7 @@ def get_history_aggregated(sensor_id: str, variable: str, hours: int = 24) -> di
             else:
                 cur.execute("""
                     SELECT
-                        date_trunc(%s, timestamp)   AS bucket,
+                        date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket
                         AVG(value)                  AS avg_val,
                         AVG(value)                  AS avg_val2,
                         MIN(value)                  AS min_val,
@@ -543,13 +543,13 @@ def get_energy_balance(sensor_id: str, hours: int = 24) -> dict:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
-                    date_trunc(%s, timestamp) AS bucket,
+                    date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
                     variable,
-                    AVG(value)                AS avg_val
+                    AVG(value) AS avg_val
                 FROM sfa_readings
                 WHERE sensor_id = %s
-                  AND variable  IN ('i_generada', 'i_carga')
-                  AND timestamp >= NOW() - INTERVAL '%s hours'
+                  AND variable IN ('i_generada', 'i_carga')
+                  AND timestamp >= NOW() - make_interval(hours => %s)
                 GROUP BY bucket, variable
                 ORDER BY bucket ASC
             """, (interval, sensor_id, hours))
@@ -723,7 +723,7 @@ def get_multi_sensor_history(
                 cur.execute("""
                     SELECT
                         sensor_id,
-                        date_trunc(%s, timestamp) AS bucket,
+                        date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
                         AVG(value)                AS avg_val
                     FROM sfa_readings
                     WHERE sensor_id = ANY(%s)
