@@ -2,27 +2,30 @@
  * WeatherView.jsx
  * ---------------
  * Mejoras Fase 3:
- *  - I_MAX configurable (igual que coordenadas)
- *  - Gráfica eficiencia real vs estimada
- *  - Energía acumulada diaria real via /energy/daily
+ * - I_MAX configurable (igual que coordenadas)
+ * - Gráfica eficiencia real vs estimada
+ * - Energía acumulada diaria real via /energy/daily
+ * - CORRECCIÓN: Bucle infinito resuelto, ref de zoom corregido, opciones de chart ajustadas.
+ * - CORRECCIÓN CSV: Exportación arreglada para iterar correctamente sobre weather.next24.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale,
   PointElement, LineElement, BarElement, Tooltip, Legend, Filler
 } from 'chart.js';
 import {
-  Sun, CloudSun, Thermometer, Zap, Edit2, Check, X,
+  Sun, CloudSun, Thermometer, Zap, Check, X,
   RefreshCw, Loader2, TrendingUp, TrendingDown, Minus,
-  BarChart2, Info, Navigation, Settings2
+  BarChart2, Info, Navigation, Settings2, ZoomOut, Download
 } from 'lucide-react';
 import { api } from '../services/api';
+import zoomPlugin from 'chartjs-plugin-zoom';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
-  BarElement, Tooltip, Legend, Filler
+  BarElement, Tooltip, Legend, Filler, zoomPlugin
 );
 
 // ── Constantes ────────────────────────────────────────────────
@@ -47,7 +50,7 @@ const radToColor = rad => {
 const deltaIcon = (pred, real) => {
   if (real == null) return null;
   const pct = pred > 0 ? ((real - pred) / pred) * 100 : 0;
-  if (Math.abs(pct) < 5)  return <Minus        size={16} className="text-slate-400" />;
+  if (Math.abs(pct) < 5)  return <Minus       size={16} className="text-slate-400" />;
   if (pct > 0)            return <TrendingUp    size={16} className="text-emerald-500" />;
   return                         <TrendingDown  size={16} className="text-rose-500" />;
 };
@@ -65,6 +68,27 @@ const CHART_TOOLTIP = {
   usePointStyle:   true,
 };
 
+// ─── Exportar CSV Específico para Balance ──────────────────────
+const exportCSV = (next24, sensorId) => {
+  if (!next24 || !next24.time?.length) return;
+  
+  // Cabecera con todas las columnas
+  const header = 'timestamp,radiacion,temp_amb,i_generada\n';
+  
+  // Mapeamos usando el índice para combinar los arrays paralelos
+  const rows = next24.time.map((t, i) => {
+    return `${t},${next24.rad[i]},${next24.temp[i]},${next24.gen[i]}`;
+  }).join('\n');
+  
+  const blob   = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement('a');
+  a.href       = url;
+  a.download   = `${sensorId}_previsión_24h.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 // ── Componente principal ──────────────────────────────────────
 const WeatherView = ({ sensorId = 's1' }) => {
 
@@ -76,6 +100,9 @@ const WeatherView = ({ sensorId = 's1' }) => {
   const [iMax, setIMax] = useState(() =>
     parseFloat(localStorage.getItem('solar_imax') || String(DEFAULT_I_MAX))
   );
+
+  // Ref para la gráfica
+  const chartRef = useRef(null);
 
   // Edición
   const [editing, setEditing]     = useState(false);
@@ -154,7 +181,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
       setLoadingW(false);
       setIsRefreshing(false);
     }
-  }, [lat, lon, iMax, weather]);
+  }, [lat, lon, iMax]); 
 
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
@@ -219,13 +246,8 @@ const WeatherView = ({ sensorId = 's1' }) => {
   const buildEfficiencyChart = () => {
     if (!weather || !sensorLatest) return null;
 
-    // Solo puntos donde tenemos ambos valores
-    const estArr = weather.next24.gen;
-    const labels = weather.next24.time.map(t => t.slice(11, 16));
-
-    // El valor real solo es el instante actual (no historial aquí)
-    const realNow = sensorLatest.i_generada ?? null;
     const estNow  = weather.currentGen;
+    const realNow = sensorLatest.i_generada ?? null;
 
     return {
       labels: ['Ahora'],
@@ -257,10 +279,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
     const days   = weather?.days.slice(0, 7) ?? [];
     const labels = days.map((d, i) => i === 0 ? 'Hoy' : d.label);
 
-    // Estimada: de Open-Meteo
     const estData = days.map(d => d.estGenAh);
-
-    // Real: del sensor (solo días pasados, hoy puede ser parcial)
     const realMap = {};
     energyDaily.forEach(e => { realMap[e.day] = e.gen_ah; });
     const realData = days.map(d => realMap[d.date] ?? null);
@@ -286,12 +305,26 @@ const WeatherView = ({ sensorId = 's1' }) => {
         },
       ],
     };
-  };
+  }; 
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: CHART_TOOLTIP },
+    plugins: { 
+      legend: { display: false }, 
+      tooltip: CHART_TOOLTIP,
+      zoom: {
+        pan: { 
+          enabled: true, 
+          mode: 'x' 
+        },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x',
+        }
+      }
+    },
     scales: {
       x: { grid: { display: false }, ticks: { font: { size: 12 }, color: '#64748b' }, border: { display: false } },
       y: { grid: { color: '#f1f5f9', borderDash: [5, 5] }, ticks: { font: { size: 12 }, color: '#64748b' }, border: { display: false } },
@@ -300,7 +333,10 @@ const WeatherView = ({ sensorId = 's1' }) => {
 
   const barOptions = {
     ...chartOptions,
-    plugins: { legend: { display: true, position: 'top' }, tooltip: CHART_TOOLTIP },
+    plugins: { 
+      ...chartOptions.plugins,
+      legend: { display: true, position: 'top' }, 
+    },
   };
 
   const chart24 = build24hChart();
@@ -485,7 +521,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
       </div>
 
       {/* GRÁFICA 24H */}
-      <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
+      <div className="group bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row
           sm:items-center justify-between gap-4">
           <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -507,9 +543,26 @@ const WeatherView = ({ sensorId = 's1' }) => {
             ))}
           </div>
         </div>
-        <div className="p-6 h-[340px] w-full">
+        <div className="p-6 h-[340px] w-full relative">
+          <div className="absolute top-4 right-8 flex items-center gap-2 z-10">
+            <button
+              onClick={() => chartRef.current?.resetZoom()} 
+              className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+              title="Restablecer zoom"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <button
+              onClick={() => exportCSV(weather.next24, sensorId)}
+              className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+              title="Exportar CSV"
+            >
+              <Download size={16} />
+            </button>
+          </div>
           {chart24 && (
             <Line
+              ref={chartRef}
               data={{ labels: weather.next24.time.map(t => t.slice(11, 16)), datasets: chart24.datasets }}
               options={chartOptions}
             />

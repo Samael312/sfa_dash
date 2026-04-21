@@ -17,6 +17,7 @@ import {
   ChevronLeft, ChevronRight, Filter, X
 } from 'lucide-react';
 
+
 const VARIABLE_LABELS = {
   radiacion:  'Radiación solar',
   temp_amb:   'Temp. ambiente',

@@ -2,18 +2,19 @@
  * HistoryView.jsx
  * ---------------
  * Mejoras Fase 3:
- *  - Downsampling automático via endpoint /history/aggregated
- *  - Estadísticas por variable (min/max/media/stddev)
- *  - Exportar CSV
- *  - Comparación multi-sensor en la misma gráfica
+ * - Downsampling automático via endpoint /history/aggregated
+ * - Estadísticas por variable (min/max/media/stddev)
+ * - Exportar CSV
+ * - Comparación multi-sensor en la misma gráfica
+ * - Búsqueda automática de datos (Fallback si hay 502 o no hay datos)
+ * - Zoom y Paneo interactivo en gráficas
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import {
   Loader2, Calendar, RefreshCw, Activity, AlertCircle,
-  Download, BarChart2, TrendingUp, Minus, ChevronDown,
-  GitCompare, X
+  Download, BarChart2, X, GitCompare, ZoomOut
 } from 'lucide-react';
 import { Line } from 'react-chartjs-2';
 import SelectDash from '../utils/SelectDash';
@@ -22,8 +23,10 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale,
   PointElement, LineElement, Tooltip, Legend, Filler
 } from 'chart.js';
+import zoomPlugin from 'chartjs-plugin-zoom';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+// Registrar el plugin de zoom
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
 const VARIABLES = [
   { key: 'radiacion',  label: 'Radiación solar', unit: 'W/m²', color: '#F59E0B', tcolor: 'text-amber-500'   },
@@ -47,7 +50,6 @@ const TIME_FILTERS = [
   { label: '1mes', val: 720 },
 ];
 
-// Paleta secundaria para el segundo sensor en comparación
 const COMPARE_COLORS = [
   '#6366F1', '#EC4899', '#14B8A6', '#A855F7',
   '#0EA5E9', '#84CC16', '#EAB308',
@@ -60,7 +62,7 @@ const StatsCard = ({ stats, unit, color }) => {
     { label: 'Mín',    value: stats.min,    icon: '↓' },
     { label: 'Máx',    value: stats.max,    icon: '↑' },
     { label: 'Media',  value: stats.avg,    icon: '∅' },
-    { label: 'σ',      value: stats.stddev, icon: '±' },
+    { label: 'σ Desv. Est.',      value: stats.stddev, icon: '±' },
   ];
   return (
     <div className="grid grid-cols-4 gap-2 mt-3">
@@ -127,15 +129,19 @@ const SensorCompareSelector = ({ allSensors, primaryId, compareIds, onChange }) 
 
 // ─── Componente principal ─────────────────────────────────────
 const HistoryView = ({ sensorId = 's1' }) => {
-  const [history,      setHistory]      = useState({});   // { variable: { points, stats } }
+  const [history,      setHistory]      = useState({});
   const [allSensors,   setAllSensors]   = useState([]);
   const [compareIds,   setCompareIds]   = useState([]);
-  const [multiData,    setMultiData]    = useState({});   // { variable: { series } }
+  const [multiData,    setMultiData]    = useState({});
   const [loading,      setLoading]      = useState(true);
   const [hours,        setHours]        = useState(24);
   const [error,        setError]        = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showStats,    setShowStats]    = useState(true);
+
+  // Referencias para el modo "Búsqueda Automática" y para las instancias de las gráficas (para el Zoom)
+  const autoSearchRef = useRef(true); 
+  const chartRefs     = useRef({});
 
   // Cargar lista de sensores para comparación
   useEffect(() => {
@@ -146,25 +152,35 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
   // Carga principal: historial agregado + stats por variable
   const load = useCallback(async (manual = false) => {
-    if (manual) setIsRefreshing(true);
-    else        setLoading(true);
+    if (manual) {
+      setIsRefreshing(true);
+      autoSearchRef.current = false; // Detener auto-búsqueda si el usuario actualiza a mano
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
       const [histResults, statsResults] = await Promise.all([
-        // Historial agregado (downsampling automático)
-        Promise.all(
-          VARIABLES.map(v =>
-            api.getHistoryAggregated(sensorId, v.key, hours).catch(() => null)
-          )
-        ),
-        // Estadísticas globales
-        Promise.all(
-          VARIABLES.map(v =>
-            api.getStats(sensorId, v.key, hours).catch(() => null)
-          )
-        ),
+        Promise.all(VARIABLES.map(v => api.getHistoryAggregated(sensorId, v.key, hours).catch(() => null))),
+        Promise.all(VARIABLES.map(v => api.getStats(sensorId, v.key, hours).catch(() => null))),
       ]);
+
+      // Lógica de Fallback Automático: Verificar si TODAS las consultas vinieron vacías o dieron error
+      const hasData = histResults.some(res => res && res.points && res.points.length > 0);
+
+      if (!hasData && autoSearchRef.current) {
+        const currentIndex = TIME_FILTERS.findIndex(f => f.val === hours);
+        if (currentIndex >= 0 && currentIndex < TIME_FILTERS.length - 1) {
+          const nextHours = TIME_FILTERS[currentIndex - 1].val;
+          console.log(`[Auto-Búsqueda] Sin datos en ${hours}h. Buscando en ${nextHours}h...`);
+          setHours(nextHours);
+          return; // Salimos prematuramente, el cambio de estado 'hours' relanzará este hook.
+        } else {
+          // Si llegamos aquí, hemos probado todos los filtros y no hay nada
+          autoSearchRef.current = false;
+        }
+      }
 
       const map = {};
       VARIABLES.forEach((v, i) => {
@@ -177,6 +193,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
       setHistory(map);
     } catch {
       setError('Error al cargar el historial.');
+      autoSearchRef.current = false;
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -203,13 +220,24 @@ const HistoryView = ({ sensorId = 's1' }) => {
     });
   }, [compareIds, sensorId, hours]);
 
-  // Configuración base de ChartJS
+  // Configuración base de ChartJS (Con Zoom Habilitado)
   const baseOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: compareIds.length > 0, position: 'top' },
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x', // Permite arrastrar en el eje X
+        },
+        zoom: {
+          wheel: { enabled: true }, // Zoom con rueda del ratón
+          pinch: { enabled: true }, // Zoom pellizcando (móviles)
+          mode: 'x', // Solo zoom temporal (eje X)
+        }
+      },
       tooltip: {
         backgroundColor: 'rgba(255,255,255,0.97)',
         titleColor:      '#64748B',
@@ -297,9 +325,9 @@ const HistoryView = ({ sensorId = 's1' }) => {
     title:       v.label,
     defaultMode: 'show',
     render: () => {
-      const data    = buildChartData(v);
-      const isEmpty = data.datasets[0]?.data?.length === 0;
-      const stats   = history[v.key]?.stats;
+      const data     = buildChartData(v);
+      const isEmpty  = data.datasets[0]?.data?.length === 0;
+      const stats    = history[v.key]?.stats;
       const interval = history[v.key]?.interval;
 
       return (
@@ -318,15 +346,25 @@ const HistoryView = ({ sensorId = 's1' }) => {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg uppercase tracking-wider">
+              <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg uppercase tracking-wider mr-2">
                 {v.unit}
               </span>
+              
+              {/* Botón para resetear Zoom (Solo se muestra en hover) */}
+              <button
+                onClick={() => chartRefs.current[v.key]?.resetZoom()}
+                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                title="Restablecer vista / zoom"
+              >
+                <ZoomOut size={16} />
+              </button>
+
               <button
                 onClick={() => exportCSV(v.key, history[v.key]?.points, sensorId, hours)}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                 title="Exportar CSV"
               >
-                <Download size={15} />
+                <Download size={16} />
               </button>
             </div>
           </div>
@@ -346,6 +384,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
               </div>
             ) : (
               <Line
+                ref={(el) => { chartRefs.current[v.key] = el; }} // Guardar ref para el zoom
                 data={data}
                 options={baseOptions}
                 role="img"
@@ -415,7 +454,10 @@ const HistoryView = ({ sensorId = 's1' }) => {
               {TIME_FILTERS.map(opt => (
                 <button
                   key={opt.val}
-                  onClick={() => setHours(opt.val)}
+                  onClick={() => {
+                    autoSearchRef.current = false; // El usuario tomó el control, detenemos la auto-búsqueda
+                    setHours(opt.val);
+                  }}
                   className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
                     ${hours === opt.val
                       ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50'
@@ -444,7 +486,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
       </div>
 
       {/* ERROR */}
-      {error && (
+      {error && !autoSearchRef.current && (
         <div className="bg-white border border-rose-100 p-5 flex items-center gap-4
           text-rose-700 shadow-sm rounded-2xl animate-in slide-in-from-top-2">
           <div className="p-2 bg-rose-50 rounded-full">

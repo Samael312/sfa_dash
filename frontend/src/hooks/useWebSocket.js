@@ -5,11 +5,11 @@
  * Acumula las lecturas por variable y notifica con el último valor.
  *
  * Uso:
- *   const { readings, connected, lastUpdate } = useWebSocket(sensorId);
+ * const { readings, connected, lastUpdate } = useWebSocket(sensorId);
  *
- *   readings → { radiacion: 523.4, temp_amb: 28.1, ... }
- *   connected → true / false
- *   lastUpdate → Date | null
+ * readings → { radiacion: 523.4, temp_amb: 28.1, ... }
+ * connected → true / false
+ * lastUpdate → Date | null
  *
  * Colocar en: frontend/src/hooks/useWebSocket.js
  */
@@ -27,10 +27,12 @@ const useWebSocket = (sensorId) => {
   const [connected,  setConnected]  = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
 
+  // ✅ CORRECTO: Todos los hooks en el nivel superior de la función
   const wsRef          = useRef(null);
   const reconnectsRef  = useRef(0);
   const timeoutRef     = useRef(null);
   const mountedRef     = useRef(true);
+  const pingRef        = useRef(null); 
 
   const connect = useCallback(() => {
     if (!sensorId || !mountedRef.current) return;
@@ -41,8 +43,6 @@ const useWebSocket = (sensorId) => {
     const url = `${WS_BASE}/ws/${sensorId}?token=${token}`;
     const ws  = new WebSocket(url);
     wsRef.current = ws;
-
-    const pingRef = useRef(null);
 
     ws.onopen = () => {
       if (!mountedRef.current) return;
@@ -56,8 +56,6 @@ const useWebSocket = (sensorId) => {
         }
       }, 30_000);
     };
-
-    
 
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
@@ -103,14 +101,14 @@ const useWebSocket = (sensorId) => {
 
     return () => {
        mountedRef.current = false;
-        clearTimeout(timeoutRef.current);
-        clearInterval(pingRef.current);   
-        if (wsRef.current) {
-          wsRef.current.onclose = null;
-          wsRef.current.close();
-        }
-        setConnected(false);
-      };
+       clearTimeout(timeoutRef.current);
+       clearInterval(pingRef.current);   
+       if (wsRef.current) {
+         wsRef.current.onclose = null;
+         wsRef.current.close();
+       }
+       setConnected(false);
+    };
   }, [connect]);
 
   return { readings, connected, lastUpdate };

@@ -2,19 +2,20 @@
  * EnergyView.jsx
  * --------------
  * Panel de gestión energética:
- *  - Energía acumulada diaria/mensual (Ah)
- *  - Balance generación vs consumo
- *  - Gráfica de barras por día
- *  - Indicadores de tendencia energética
- *  - Estado de carga histórico
+ * - Energía acumulada diaria/mensual (Ah)
+ * - Balance generación vs consumo
+ * - Gráfica de barras por día
+ * - Indicadores de tendencia energética
+ * - Estado de carga histórico
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import {
   Loader2, RefreshCw, Zap, Battery, TrendingUp,
   TrendingDown, Minus, BarChart2, Activity,
-  AlertCircle, Calendar, ArrowUp, ArrowDown
+  AlertCircle, Calendar, ArrowUp, ArrowDown, ZoomOut,
+  Download
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale,
@@ -22,10 +23,11 @@ import {
   Tooltip, Legend, Filler
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
+import zoomPlugin from 'chartjs-plugin-zoom';
 
 ChartJS.register(
   CategoryScale, LinearScale, BarElement,
-  PointElement, LineElement, Tooltip, Legend, Filler
+  PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin
 );
 
 // ── Constantes ────────────────────────────────────────────────
@@ -57,6 +59,23 @@ const CHART_TOOLTIP = {
   displayColors:   true,
   boxPadding:      6,
   usePointStyle:   true,
+};
+
+// ─── Exportar CSV Específico para Balance ──────────────────────
+const exportBalanceCSV = (points, sensorId, hours) => {
+  if (!points?.length) return;
+  
+  // Cabecera con todas las columnas
+  const header = 'timestamp,i_generada_A,i_carga_A,neto_A\n';
+  const rows   = points.map(p => `${p.timestamp},${p.i_generada},${p.i_carga},${p.net}`).join('\n');
+  
+  const blob   = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement('a');
+  a.href       = url;
+  a.download   = `${sensorId}_balance_${hours}h.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -104,6 +123,9 @@ const EnergyView = ({ sensorId = 's1' }) => {
   const [loading,      setLoading]      = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error,        setError]        = useState(null);
+  
+  // Referencia específica para el gráfico de líneas (balance)
+  const balanceChartRef = useRef(null); 
 
   const load = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
@@ -134,15 +156,12 @@ const EnergyView = ({ sensorId = 's1' }) => {
     const totalLoad = energyDaily.reduce((s, d) => s + (d.load_ah ?? 0), 0);
     const totalNet  = totalGen - totalLoad;
 
-    // Mejor y peor día
     const bestDay  = [...energyDaily].sort((a, b) => b.gen_ah  - a.gen_ah)[0];
     const worstDay = [...energyDaily].sort((a, b) => a.gen_ah  - b.gen_ah)[0];
 
-    // Media diaria
     const avgGen  = totalGen  / energyDaily.length;
     const avgLoad = totalLoad / energyDaily.length;
 
-    // Tendencia: comparar primera mitad vs segunda mitad
     const half   = Math.floor(energyDaily.length / 2);
     const first  = energyDaily.slice(0, half).reduce((s, d) => s + d.gen_ah, 0) / (half || 1);
     const second = energyDaily.slice(half).reduce((s, d) => s + d.gen_ah, 0)    / (energyDaily.length - half || 1);
@@ -254,6 +273,17 @@ const EnergyView = ({ sensorId = 's1' }) => {
     interaction:          { mode: 'index', intersect: false },
     plugins: {
       legend:  { display: true, position: 'top' },
+      zoom:    {
+        pan: {
+          enabled: true,
+          mode: 'x', 
+        },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x', 
+        },
+      },
       tooltip: CHART_TOOLTIP,
     },
     scales: {
@@ -277,6 +307,18 @@ const EnergyView = ({ sensorId = 's1' }) => {
     plugins: {
       legend:  { display: true, position: 'top' },
       tooltip: CHART_TOOLTIP,
+      // Habilitar el zoom para el balance de líneas
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x',
+        },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x',
+        },
+      },
     },
     scales: {
       x: {
@@ -498,8 +540,8 @@ const EnergyView = ({ sensorId = 's1' }) => {
         </div>
       )}
 
-      {/* BALANCE HISTÓRICO EN TIEMPO */}
-      <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
+      {/* BALANCE HISTÓRICO EN TIEMPO - AHORA CON CLASE "group" PARA EL HOVER */}
+      <div className="group bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden transition-shadow hover:shadow-md">
         <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row
           sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -527,9 +569,31 @@ const EnergyView = ({ sensorId = 's1' }) => {
             ))}
           </div>
         </div>
-        <div className="p-6 h-[300px]">
+        
+        {/* Contenedor relativo de la gráfica con botones absolutos */}
+        <div className="p-6 h-[320px] relative">
+          
+          {/* Botones Flotantes ocultos por defecto, visibles al pasar el ratón (hover) */}
+          <div className="absolute top-4 right-8 flex items-center gap-2 z-10">
+            <button
+              onClick={() => balanceChartRef.current?.resetZoom()} 
+              className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+              title="Restablecer zoom"
+            >
+              <ZoomOut size={16} />
+            </button>
+
+            <button
+              onClick={() => exportBalanceCSV(balance?.points, sensorId, balanceHours)}
+              className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+              title="Exportar CSV"
+            >
+              <Download size={16} />
+            </button>
+          </div>
+
           {balanceChartData ? (
-            <Line data={balanceChartData} options={lineOptions} />
+            <Line ref={balanceChartRef} data={balanceChartData} options={lineOptions} />
           ) : (
             <div className="h-full flex items-center justify-center text-slate-400">
               <p className="text-sm">Sin datos de balance en este período</p>
