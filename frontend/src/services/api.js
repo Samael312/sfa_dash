@@ -199,4 +199,42 @@ export const api = {
     });
     return res.data;
   },
+
+  // ── Evaluación completa (umbral + tendencia) ──────────────────
+  evaluateAlertsFull: async (sensorId = 's1') => {
+    const res = await authAxios.get(`${API_BASE}/alerts/evaluate/full`, {
+      params: { sensor_id: sensorId }
+    });
+    return res.data;
+  },
+ 
+  // ── Snooze: silenciar alertas ─────────────────────────────────
+  snoozeAlert: async ({ sensor_id, variable = null, hours = 2 }) => {
+    const res = await authAxios.post(`${API_BASE}/alerts/snooze`, {
+      sensor_id, variable, hours
+    });
+    return res.data;
+  },
+ 
+  // ── Cancelar snooze ───────────────────────────────────────────
+  cancelSnooze: async (sensorId, variable = null) => {
+    const params = { sensor_id: sensorId };
+    if (variable) params.variable = variable;
+    const res = await authAxios.delete(`${API_BASE}/alerts/snooze`, { params });
+    return res.data;
+  },
+ 
+  // ── Listar snoozes activos ────────────────────────────────────
+  getSnoozes: async (sensorId = 's1') => {
+    const res = await authAxios.get(`${API_BASE}/alerts/snooze`, {
+      params: { sensor_id: sensorId }
+    });
+    return res.data;
+  },
+ 
+  // ── Configuración del motor de tendencias ────────────────────
+  getTrendsConfig: async () => {
+    const res = await authAxios.get(`${API_BASE}/alerts/trends/config`);
+    return res.data;
+  },
 };

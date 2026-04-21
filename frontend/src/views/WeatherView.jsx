@@ -1,21 +1,22 @@
 /**
  * WeatherView.jsx
  * ---------------
- * Panel de predicción meteorológica y estimación de generación SFA.
- * Estilo: Estilizado, Premium, Modern SaaS (Curvas suaves, sombras sutiles).
+ * Mejoras Fase 3:
+ *  - I_MAX configurable (igual que coordenadas)
+ *  - Gráfica eficiencia real vs estimada
+ *  - Energía acumulada diaria real via /energy/daily
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Line }    from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale,
-  PointElement, LineElement, Tooltip, Legend, Filler, BarElement
+  PointElement, LineElement, BarElement, Tooltip, Legend, Filler
 } from 'chart.js';
 import {
-  Sun, CloudSun, Thermometer, Zap,
-  Edit2, Check, X, RefreshCw, Loader2,
-  TrendingUp, TrendingDown, Minus, BarChart2,
-  Info, Navigation
+  Sun, CloudSun, Thermometer, Zap, Edit2, Check, X,
+  RefreshCw, Loader2, TrendingUp, TrendingDown, Minus,
+  BarChart2, Info, Navigation, Settings2
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -24,12 +25,9 @@ ChartJS.register(
   BarElement, Tooltip, Legend, Filler
 );
 
-// ==========================================
-// CONSTANTES
-// ==========================================
-const I_MAX        = 8.0; 
-const estCurrent   = rad => Math.max(0, +(I_MAX * rad / 1000).toFixed(2));
-const OPEN_METEO   = (lat, lon) =>
+// ── Constantes ────────────────────────────────────────────────
+const DEFAULT_I_MAX  = 8.0;
+const OPEN_METEO_URL = (lat, lon) =>
   `https://api.open-meteo.com/v1/forecast` +
   `?latitude=${lat}&longitude=${lon}` +
   `&hourly=shortwave_radiation,temperature_2m` +
@@ -38,9 +36,8 @@ const OPEN_METEO   = (lat, lon) =>
 
 const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
-// ==========================================
-// HELPERS
-// ==========================================
+const toGen = (rad, iMax) => Math.max(0, +(iMax * rad / 1000).toFixed(2));
+
 const radToColor = rad => {
   if (rad >= 600) return 'text-orange-500';
   if (rad >= 300) return 'text-amber-500';
@@ -48,38 +45,64 @@ const radToColor = rad => {
 };
 
 const deltaIcon = (pred, real) => {
-  if (real === null || real === undefined) return null;
+  if (real == null) return null;
   const pct = pred > 0 ? ((real - pred) / pred) * 100 : 0;
-  if (Math.abs(pct) < 5)  return <Minus    size={16} className="text-slate-400" />;
-  if (pct > 0)            return <TrendingUp   size={16} className="text-emerald-500" />;
-  return                         <TrendingDown size={16} className="text-rose-500"  />;
+  if (Math.abs(pct) < 5)  return <Minus        size={16} className="text-slate-400" />;
+  if (pct > 0)            return <TrendingUp    size={16} className="text-emerald-500" />;
+  return                         <TrendingDown  size={16} className="text-rose-500" />;
 };
 
-// ==========================================
-// COMPONENTE PRINCIPAL
-// ==========================================
+const CHART_TOOLTIP = {
+  backgroundColor: 'rgba(255,255,255,0.97)',
+  titleColor:      '#64748B',
+  bodyColor:       '#0F172A',
+  borderColor:     '#E2E8F0',
+  borderWidth:     1,
+  padding:         12,
+  cornerRadius:    12,
+  displayColors:   true,
+  boxPadding:      6,
+  usePointStyle:   true,
+};
+
+// ── Componente principal ──────────────────────────────────────
 const WeatherView = ({ sensorId = 's1' }) => {
 
+  // Coordenadas
   const [lat, setLat] = useState(() => parseFloat(localStorage.getItem('solar_lat') || '37.40'));
   const [lon, setLon] = useState(() => parseFloat(localStorage.getItem('solar_lon') || '-4.48'));
-  const [editing, setEditing] = useState(false);
-  const [tempLat, setTempLat] = useState(lat);
-  const [tempLon, setTempLon] = useState(lon);
 
-  const [weather, setWeather]   = useState(null);
-  const [loadingW, setLoadingW] = useState(true);
-  const [errorW, setErrorW]     = useState(null);
+  // I_MAX configurable
+  const [iMax, setIMax] = useState(() =>
+    parseFloat(localStorage.getItem('solar_imax') || String(DEFAULT_I_MAX))
+  );
+
+  // Edición
+  const [editing, setEditing]     = useState(false);
+  const [tempLat, setTempLat]     = useState(lat);
+  const [tempLon, setTempLon]     = useState(lon);
+  const [tempIMax, setTempIMax]   = useState(iMax);
+
+  // Datos meteorológicos
+  const [weather,      setWeather]      = useState(null);
+  const [loadingW,     setLoadingW]     = useState(true);
+  const [errorW,       setErrorW]       = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Datos del sensor
   const [sensorLatest, setSensorLatest] = useState(null);
+  const [energyDaily,  setEnergyDaily]  = useState([]);
+
+  // Modo gráfica 24h
   const [chart24Mode, setChart24Mode] = useState('radiation');
 
+  // ── Fetch meteorología ──────────────────────────────────────
   const fetchWeather = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
-    if (!manual && !weather) setLoadingW(true);
+    else if (!weather) setLoadingW(true);
     setErrorW(null);
     try {
-      const res  = await fetch(OPEN_METEO(lat, lon));
+      const res  = await fetch(OPEN_METEO_URL(lat, lon));
       const data = await res.json();
       if (data.error) throw new Error(data.reason || 'Coordenadas inválidas');
 
@@ -87,34 +110,36 @@ const WeatherView = ({ sensorId = 's1' }) => {
       const currentHour = now.getHours();
       const todayStr    = now.toISOString().slice(0, 10);
       const hourlyTime  = data.hourly.time;
-      
-      const startIdx = hourlyTime.findIndex(t => t.startsWith(todayStr) && parseInt(t.slice(11, 13)) === currentHour);
-      const idx      = startIdx >= 0 ? startIdx : currentHour;
 
-      const hourlyRad   = data.hourly.shortwave_radiation;
-      const hourlyTemp  = data.hourly.temperature_2m;
+      const startIdx = hourlyTime.findIndex(
+        t => t.startsWith(todayStr) && parseInt(t.slice(11, 13)) === currentHour
+      );
+      const idx = startIdx >= 0 ? startIdx : currentHour;
 
-      const next24Rad   = hourlyRad.slice(idx, idx + 24);
-      const next24Temp  = hourlyTemp.slice(idx, idx + 24);
-      const next24Time  = hourlyTime.slice(idx, idx + 24);
-      const next24Gen   = next24Rad.map(estCurrent);
+      const hourlyRad  = data.hourly.shortwave_radiation;
+      const hourlyTemp = data.hourly.temperature_2m;
+
+      const next24Rad  = hourlyRad.slice(idx, idx + 24);
+      const next24Temp = hourlyTemp.slice(idx, idx + 24);
+      const next24Time = hourlyTime.slice(idx, idx + 24);
+      const next24Gen  = next24Rad.map(r => toGen(r, iMax));
 
       const currentRad  = hourlyRad[idx]  ?? 0;
       const currentTemp = hourlyTemp[idx] ?? 0;
-      const currentGen  = estCurrent(currentRad);
+      const currentGen  = toGen(currentRad, iMax);
       const peakRad     = Math.max(...next24Rad);
       const peakHour    = next24Time[next24Rad.indexOf(peakRad)]?.slice(11, 16) ?? '--:--';
 
       const daily = data.daily;
       const days  = daily.time.map((date, i) => ({
         date,
-        label:      DAYS_ES[new Date(date + 'T12:00:00').getDay()],
-        radSum:     +(daily.shortwave_radiation_sum[i]?.toFixed(0) ?? 0),
-        tempMax:    daily.temperature_2m_max[i],
-        tempMin:    daily.temperature_2m_min[i],
-        sunrise:    daily.sunrise[i]?.slice(11, 16) ?? '--:--',
-        sunset:     daily.sunset[i]?.slice(11, 16)  ?? '--:--',
-        estGenKwh:  +((daily.shortwave_radiation_sum[i] ?? 0) * I_MAX / 1000).toFixed(2),
+        label:     DAYS_ES[new Date(date + 'T12:00:00').getDay()],
+        radSum:    +(daily.shortwave_radiation_sum[i]?.toFixed(0) ?? 0),
+        tempMax:   daily.temperature_2m_max[i],
+        tempMin:   daily.temperature_2m_min[i],
+        sunrise:   daily.sunrise[i]?.slice(11, 16) ?? '--:--',
+        sunset:    daily.sunset[i]?.slice(11, 16)  ?? '--:--',
+        estGenAh:  +((daily.shortwave_radiation_sum[i] ?? 0) * iMax / 1000).toFixed(2),
       }));
 
       setWeather({
@@ -129,28 +154,35 @@ const WeatherView = ({ sensorId = 's1' }) => {
       setLoadingW(false);
       setIsRefreshing(false);
     }
-  }, [lat, lon, weather]);
+  }, [lat, lon, iMax, weather]);
 
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
+  // ── Fetch sensor + energía ──────────────────────────────────
   useEffect(() => {
-    api.getSFALatest(sensorId).then(res => setSensorLatest(res)).catch(() => {});
+    api.getSFALatest(sensorId).then(setSensorLatest).catch(() => {});
+    api.getEnergyDaily(sensorId, 7).then(res => setEnergyDaily(res?.data ?? [])).catch(() => {});
   }, [sensorId]);
 
+  // ── Guardar configuración ───────────────────────────────────
   const handleSave = () => {
     const la = parseFloat(tempLat);
     const lo = parseFloat(tempLon);
+    const im = parseFloat(tempIMax);
     if (isNaN(la) || isNaN(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) return;
-    setLat(la); setLon(lo);
-    localStorage.setItem('solar_lat', la);
-    localStorage.setItem('solar_lon', lo);
+    if (isNaN(im) || im <= 0) return;
+    setLat(la); setLon(lo); setIMax(im);
+    localStorage.setItem('solar_lat',  la);
+    localStorage.setItem('solar_lon',  lo);
+    localStorage.setItem('solar_imax', im);
     setEditing(false);
   };
 
   const handleCancel = () => {
-    setTempLat(lat); setTempLon(lon); setEditing(false);
+    setTempLat(lat); setTempLon(lon); setTempIMax(iMax); setEditing(false);
   };
 
+  // ── Construcción gráfica 24h ────────────────────────────────
   const build24hChart = () => {
     if (!weather) return null;
     const { next24 } = weather;
@@ -158,75 +190,122 @@ const WeatherView = ({ sensorId = 's1' }) => {
 
     const datasets = {
       radiation: [{
-        label:           'Rad. Prevista (W/m²)',
-        data:            next24.rad,
-        borderColor:     '#f97316', 
-        backgroundColor: 'rgba(249, 115, 22, 0.08)',
-        borderWidth:     3,
-        pointRadius:     0,
-        pointHoverRadius: 6,
-        tension:         0.4,
-        fill:            true,
+        label:            'Rad. Prevista (W/m²)',
+        data:             next24.rad,
+        borderColor:      '#f97316',
+        backgroundColor:  'rgba(249,115,22,0.08)',
+        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
       temperature: [{
-        label:           'Temp. Prevista (°C)',
-        data:            next24.temp,
-        borderColor:     '#f43f5e', 
-        backgroundColor: 'rgba(244, 63, 94, 0.08)',
-        borderWidth:     3,
-        pointRadius:     0,
-        pointHoverRadius: 6,
-        tension:         0.4,
-        fill:            true,
+        label:            'Temp. Prevista (°C)',
+        data:             next24.temp,
+        borderColor:      '#f43f5e',
+        backgroundColor:  'rgba(244,63,94,0.08)',
+        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
       generation: [{
-        label:           'Gen. Estimada (A)',
-        data:            next24.gen,
-        borderColor:     '#10b981', 
-        backgroundColor: 'rgba(16, 185, 129, 0.08)',
-        borderWidth:     3,
-        pointRadius:     0,
-        pointHoverRadius: 6,
-        tension:         0.4,
-        fill:            true,
+        label:            `Gen. Estimada (A) · I_MAX=${iMax}A`,
+        data:             next24.gen,
+        borderColor:      '#10b981',
+        backgroundColor:  'rgba(16,185,129,0.08)',
+        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
     };
 
+    return { labels, datasets: datasets[chart24Mode] };
+  };
+
+  // ── Gráfica eficiencia real vs estimada ─────────────────────
+  const buildEfficiencyChart = () => {
+    if (!weather || !sensorLatest) return null;
+
+    // Solo puntos donde tenemos ambos valores
+    const estArr = weather.next24.gen;
+    const labels = weather.next24.time.map(t => t.slice(11, 16));
+
+    // El valor real solo es el instante actual (no historial aquí)
+    const realNow = sensorLatest.i_generada ?? null;
+    const estNow  = weather.currentGen;
+
     return {
-      data: { labels, datasets: datasets[chart24Mode] },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { 
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            titleFont: { family: 'sans-serif', size: 14, weight: '600' },
-            bodyFont: { family: 'sans-serif', size: 14 },
-            padding: 12,
-            cornerRadius: 12,
-            displayColors: false,
-            borderColor: 'rgba(255,255,255,0.1)',
-            borderWidth: 1,
-          }
+      labels: ['Ahora'],
+      datasets: [
+        {
+          label:           'Estimada (A)',
+          data:            [estNow],
+          backgroundColor: 'rgba(16,185,129,0.7)',
+          borderColor:     '#10b981',
+          borderWidth:     2,
+          borderRadius:    8,
         },
-        scales: {
-          x: { 
-            grid: { display: false },
-            ticks: { maxTicksLimit: 12, font: { size: 12 }, color: '#64748b' },
-            border: { display: false }
-          },
-          y: {
-            grid: { color: '#f1f5f9', borderDash: [5, 5] },
-            ticks: { maxTicksLimit: 6, font: { size: 12 }, color: '#64748b' },
-            border: { display: false }
-          }
-        }
-      }
+        {
+          label:           'Real sensor (A)',
+          data:            [realNow],
+          backgroundColor: 'rgba(99,102,241,0.7)',
+          borderColor:     '#6366F1',
+          borderWidth:     2,
+          borderRadius:    8,
+        },
+      ],
     };
   };
 
+  // ── Gráfica energía diaria real vs estimada ─────────────────
+  const buildEnergyChart = () => {
+    if (!energyDaily.length && !weather) return null;
+
+    const days   = weather?.days.slice(0, 7) ?? [];
+    const labels = days.map((d, i) => i === 0 ? 'Hoy' : d.label);
+
+    // Estimada: de Open-Meteo
+    const estData = days.map(d => d.estGenAh);
+
+    // Real: del sensor (solo días pasados, hoy puede ser parcial)
+    const realMap = {};
+    energyDaily.forEach(e => { realMap[e.day] = e.gen_ah; });
+    const realData = days.map(d => realMap[d.date] ?? null);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label:           'Estimada (Ah)',
+          data:            estData,
+          backgroundColor: 'rgba(16,185,129,0.6)',
+          borderColor:     '#10b981',
+          borderWidth:     2,
+          borderRadius:    6,
+        },
+        {
+          label:           'Real sensor (Ah)',
+          data:            realData,
+          backgroundColor: 'rgba(99,102,241,0.6)',
+          borderColor:     '#6366F1',
+          borderWidth:     2,
+          borderRadius:    6,
+        },
+      ],
+    };
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: CHART_TOOLTIP },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 12 }, color: '#64748b' }, border: { display: false } },
+      y: { grid: { color: '#f1f5f9', borderDash: [5, 5] }, ticks: { font: { size: 12 }, color: '#64748b' }, border: { display: false } },
+    },
+  };
+
+  const barOptions = {
+    ...chartOptions,
+    plugins: { legend: { display: true, position: 'top' }, tooltip: CHART_TOOLTIP },
+  };
+
   const chart24 = build24hChart();
+  const effChart = buildEfficiencyChart();
+  const energyChart = buildEnergyChart();
 
   if (loadingW) return (
     <div className="flex flex-col items-center justify-center h-64 gap-4 bg-slate-50/50 m-4 rounded-3xl">
@@ -239,27 +318,27 @@ const WeatherView = ({ sensorId = 's1' }) => {
     <div className="flex flex-col gap-4 mx-auto p-4 w-full">
       <div className="bg-white border border-rose-100 p-6 flex justify-between items-center text-rose-700 shadow-sm rounded-2xl">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-rose-50 rounded-full">
-            <Info size={24} className="text-rose-500" />
-          </div>
+          <div className="p-3 bg-rose-50 rounded-full"><Info size={24} className="text-rose-500" /></div>
           <span className="font-medium">{errorW}</span>
         </div>
-        <button onClick={() => fetchWeather(true)} className="px-5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-sm font-semibold transition-colors">
+        <button onClick={() => fetchWeather(true)}
+          className="px-5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-sm font-semibold">
           Reintentar
         </button>
       </div>
     </div>
   );
 
-  const realRad  = sensorLatest?.radiacion ?? null;
-  const realTemp = sensorLatest?.temp_amb ?? null;
-  const realGen  = sensorLatest?.i_generada ?? null;
+  const realRad  = sensorLatest?.radiacion   ?? null;
+  const realTemp = sensorLatest?.temp_amb    ?? null;
+  const realGen  = sensorLatest?.i_generada  ?? null;
 
   return (
-    <div className="w-full mx-auto p-4 md:p-6 flex flex-col gap-6 bg-slate-50/50 min-h-screen text-slate-800 font-sans">
+    <div className="w-full mx-auto p-4 md:p-6 flex flex-col gap-6 bg-slate-50/50 min-h-screen text-slate-800">
 
-      {/* CABECERA ESTILIZADA */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 bg-white p-6 border border-slate-100 shadow-sm rounded-2xl">
+      {/* CABECERA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6
+        bg-white p-6 border border-slate-100 shadow-sm rounded-2xl">
         <div className="flex items-center gap-5">
           <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm border border-indigo-100/50">
             <Navigation size={26} strokeWidth={1.5} />
@@ -267,9 +346,14 @@ const WeatherView = ({ sensorId = 's1' }) => {
           <div>
             <h2 className="text-xl font-bold tracking-tight text-slate-900">Meteorología & Predicción</h2>
             <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
-              <span>Coordenadas de la planta:</span>
+              <span>Coordenadas:</span>
               <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
                 {lat.toFixed(4)}, {lon.toFixed(4)}
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>I_MAX:</span>
+              <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                {iMax} A
               </span>
             </div>
           </div>
@@ -279,22 +363,26 @@ const WeatherView = ({ sensorId = 's1' }) => {
           {editing ? (
             <>
               <button onClick={handleCancel}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700 transition-colors rounded-xl shadow-sm">
+                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200
+                  hover:bg-slate-50 text-sm font-semibold text-slate-700 rounded-xl shadow-sm">
                 <X size={16} /> Cancelar
               </button>
               <button onClick={handleSave}
-                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white transition-colors rounded-xl shadow-sm shadow-indigo-200">
+                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700
+                  text-sm font-semibold text-white rounded-xl shadow-sm shadow-indigo-200">
                 <Check size={16} /> Guardar
               </button>
             </>
           ) : (
             <>
               <button onClick={() => setEditing(true)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700 transition-colors rounded-xl shadow-sm">
-                <Edit2 size={16} /> Editar Ubicación
+                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200
+                  hover:bg-slate-50 text-sm font-semibold text-slate-700 rounded-xl shadow-sm">
+                <Settings2 size={16} /> Configurar
               </button>
               <button onClick={() => fetchWeather(true)} disabled={isRefreshing}
-                className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-sm font-semibold text-white transition-colors disabled:opacity-50 rounded-xl shadow-sm">
+                className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800
+                  text-sm font-semibold text-white rounded-xl shadow-sm disabled:opacity-50">
                 <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
                 {isRefreshing ? 'Sincronizando' : 'Actualizar'}
               </button>
@@ -303,169 +391,161 @@ const WeatherView = ({ sensorId = 's1' }) => {
         </div>
       </div>
 
-      {/* EDITOR COORDENADAS SUAVE */}
+      {/* EDITOR */}
       {editing && (
-        <div className="bg-white border border-slate-100 shadow-sm p-6 flex flex-col sm:flex-row gap-6 rounded-2xl transition-all">
-          <div className="flex flex-col gap-2 flex-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest ml-1">Latitud</label>
-            <input type="number" step="0.0001" value={tempLat}
-              onChange={e => setTempLat(e.target.value)}
-              className="border border-slate-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50 transition-all"
-            />
-          </div>
-          <div className="flex flex-col gap-2 flex-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest ml-1">Longitud</label>
-            <input type="number" step="0.0001" value={tempLon}
-              onChange={e => setTempLon(e.target.value)}
-              className="border border-slate-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50 transition-all"
-            />
+        <div className="bg-white border border-slate-100 shadow-sm p-6 rounded-2xl">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">
+            Configuración de la instalación
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                Latitud
+              </label>
+              <input type="number" step="0.0001" value={tempLat}
+                onChange={e => setTempLat(e.target.value)}
+                className="border border-slate-200 px-4 py-3 text-base focus:outline-none
+                  focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                Longitud
+              </label>
+              <input type="number" step="0.0001" value={tempLon}
+                onChange={e => setTempLon(e.target.value)}
+                className="border border-slate-200 px-4 py-3 text-base focus:outline-none
+                  focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                Corriente máx. panel (A)
+              </label>
+              <input type="number" step="0.1" min="0.1" value={tempIMax}
+                onChange={e => setTempIMax(e.target.value)}
+                className="border border-slate-200 px-4 py-3 text-base focus:outline-none
+                  focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 rounded-xl bg-slate-50/50" />
+              <p className="text-[11px] text-slate-400">
+                Corriente a 1000 W/m² (dato de la ficha del panel)
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* TARJETAS DE KPIs ELEGANTES */}
+      {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* KPI: Radiación */}
-        <div className="bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col rounded-2xl overflow-hidden">
-          <div className="px-6 py-5 flex justify-between items-center">
-            <span className="text-sm font-medium text-orange-500">Radiación Solar</span>
-            <div className="p-2 bg-orange-50 rounded-xl">
-              <Sun size={20} className="text-orange-500" strokeWidth={2} />
+        {[
+          {
+            label: 'Radiación Solar', unit: 'W/m²', color: 'text-orange-500',
+            bg: 'bg-orange-50', icon: <Sun size={20} className="text-orange-500" strokeWidth={2} />,
+            current: weather.currentRad, real: realRad,
+            extra: { label: `Pico estimado (${weather.peakHour})`, value: `${weather.peakRad} W`, cls: 'text-orange-600 bg-orange-50' },
+          },
+          {
+            label: 'Temperatura Amb.', unit: '°C', color: 'text-rose-500',
+            bg: 'bg-rose-50', icon: <Thermometer size={20} className="text-rose-500" strokeWidth={2} />,
+            current: weather.currentTemp, real: realTemp,
+            extra: { label: 'Mín / Máx diaria', value: `${weather.days[0]?.tempMin}° / ${weather.days[0]?.tempMax}°`, cls: 'text-rose-600 bg-rose-50' },
+          },
+          {
+            label: 'Generación Est.', unit: 'A', color: 'text-emerald-500',
+            bg: 'bg-emerald-50', icon: <Zap size={20} className="text-emerald-500" strokeWidth={2} />,
+            current: weather.currentGen, real: realGen,
+            extra: { label: 'Acumulado diario est.', value: `${weather.days[0]?.estGenAh} Ah`, cls: 'text-emerald-600 bg-emerald-50' },
+          },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-white border border-slate-100 shadow-sm
+            hover:shadow-md transition-shadow flex flex-col rounded-2xl overflow-hidden">
+            <div className="px-6 py-5 flex justify-between items-center">
+              <span className={`text-sm font-medium ${kpi.color}`}>{kpi.label}</span>
+              <div className={`p-2 rounded-xl ${kpi.bg}`}>{kpi.icon}</div>
+            </div>
+            <div className="px-6 pb-6 flex items-baseline gap-2">
+              <span className={`text-5xl font-bold tracking-tight ${kpi.color}`}>{kpi.current}</span>
+              <span className={`text-lg font-medium ${kpi.color} opacity-70`}>{kpi.unit}</span>
+            </div>
+            <div className="bg-slate-50/50 px-6 py-4 flex flex-col gap-3 text-sm border-t border-slate-100 mt-auto">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Sensor local:</span>
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5
+                  bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
+                  {deltaIcon(kpi.current, kpi.real)}
+                  {kpi.real != null ? `${kpi.real} ${kpi.unit}` : 'Offline'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">{kpi.extra.label}:</span>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${kpi.extra.cls}`}>
+                  {kpi.extra.value}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="px-6 pb-6 flex items-baseline gap-2">
-            <span className="text-5xl font-bold tracking-tight text-orange-500">
-              {weather.currentRad}
-            </span>
-            <span className="text-lg text-orange-400 font-medium">W/m²</span>
-          </div>
-          <div className="bg-slate-50/50 px-6 py-4 flex flex-col gap-3 text-sm border-t border-slate-100 mt-auto">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Sensor local:</span>
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
-                {deltaIcon(weather.currentRad, realRad)}
-                {realRad !== null ? `${realRad} W` : 'Offline'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Pico estimado ({weather.peakHour}):</span>
-              <span className="font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">{weather.peakRad} W</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI: Temperatura */}
-        <div className="bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col rounded-2xl overflow-hidden">
-          <div className="px-6 py-5 flex justify-between items-center">
-            <span className="text-sm font-medium text-rose-500">Temperatura Amb.</span>
-            <div className="p-2 bg-rose-50 rounded-xl">
-              <Thermometer size={20} className="text-rose-500" strokeWidth={2} />
-            </div>
-          </div>
-          <div className="px-6 pb-6 flex items-baseline gap-2">
-            <span className="text-5xl font-bold tracking-tight text-rose-500">
-              {weather.currentTemp}
-            </span>
-            <span className="text-lg text-rose-400 font-medium">°C</span>
-          </div>
-          <div className="bg-slate-50/50 px-6 py-4 flex flex-col gap-3 text-sm border-t border-slate-100 mt-auto">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Sensor local:</span>
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
-                {deltaIcon(weather.currentTemp, realTemp)}
-                {realTemp !== null ? `${realTemp} °C` : 'Offline'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Mín / Máx diaria:</span>
-              <span className="font-medium text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">
-                {weather.days[0]?.tempMin}° / {weather.days[0]?.tempMax}°
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI: Generación */}
-        <div className="bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col rounded-2xl overflow-hidden">
-          <div className="px-6 py-5 flex justify-between items-center">
-            <span className="text-sm font-medium text-emerald-500">Generación Est.</span>
-            <div className="p-2 bg-emerald-50 rounded-xl">
-              <Zap size={20} className="text-emerald-500" strokeWidth={2} />
-            </div>
-          </div>
-          <div className="px-6 pb-6 flex items-baseline gap-2">
-            <span className="text-5xl font-bold tracking-tight text-emerald-500">
-              {weather.currentGen}
-            </span>
-            <span className="text-lg text-emerald-400 font-medium">A</span>
-          </div>
-          <div className="bg-slate-50/50 px-6 py-4 flex flex-col gap-3 text-sm border-t border-slate-100 mt-auto">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Sensor local:</span>
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
-                {deltaIcon(weather.currentGen, realGen)}
-                {realGen !== null ? `${realGen} A` : 'Offline'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Acumulado diario:</span>
-              <span className="font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">{weather.days[0]?.estGenKwh} Ah</span>
-            </div>
-          </div>
-        </div>
-
+        ))}
       </div>
 
-      {/* GRÁFICA 24H CON TABS ESTILIZADOS */}
+      {/* GRÁFICA 24H */}
       <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row
+          sm:items-center justify-between gap-4">
           <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-            <BarChart2 size={22} className="text-indigo-400" /> 
-            Previsión de 24 Horas
+            <BarChart2 size={22} className="text-indigo-400" /> Previsión de 24 Horas
           </h3>
-          
-          {/* Segmented Control */}
           <div className="flex p-1 bg-slate-100 rounded-xl">
             {[
-              { id: 'radiation',   label: 'Radiación' },
+              { id: 'radiation',   label: 'Radiación'   },
               { id: 'temperature', label: 'Temperatura' },
-              { id: 'generation',  label: 'Generación' },
-            ].map(opt => {
-              const isActive = chart24Mode === opt.id;
-              return (
-                <button 
-                  key={opt.id} 
-                  onClick={() => setChart24Mode(opt.id)}
-                  className={`px-4 py-1.5 text-sm font-medium transition-all rounded-lg 
-                    ${isActive 
-                      ? 'bg-white text-slate-800 shadow-sm border border-slate-200/50' 
-                      : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
+              { id: 'generation',  label: 'Generación'  },
+            ].map(opt => (
+              <button key={opt.id} onClick={() => setChart24Mode(opt.id)}
+                className={`px-4 py-1.5 text-sm font-medium transition-all rounded-lg
+                  ${chart24Mode === opt.id
+                    ? 'bg-white text-slate-800 shadow-sm border border-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-700'}`}>
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
-        
         <div className="p-6 h-[340px] w-full">
-          {chart24 && <Line data={chart24.data} options={chart24.options} />}
+          {chart24 && (
+            <Line
+              data={{ labels: weather.next24.time.map(t => t.slice(11, 16)), datasets: chart24.datasets }}
+              options={chartOptions}
+            />
+          )}
         </div>
       </div>
 
-      {/* 7 DÍAS - ESTILO TARJETAS LIMPIAS */}
+      {/* GRÁFICA ENERGÍA DIARIA REAL VS ESTIMADA */}
+      {energyChart && (
+        <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <Zap size={22} className="text-emerald-400" />
+              Energía diaria: Real vs Estimada (Ah)
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Basado en datos reales del sensor e I_MAX = {iMax} A
+            </p>
+          </div>
+          <div className="p-6 h-[280px]">
+            <Bar data={energyChart} options={barOptions} />
+          </div>
+        </div>
+      )}
+
+      {/* 7 DÍAS */}
       <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-            <CloudSun size={22} className="text-indigo-400" /> 
-            Previsión a 7 Días
+            <CloudSun size={22} className="text-indigo-400" /> Previsión a 7 Días
           </h3>
         </div>
-        
         <div className="grid grid-cols-2 lg:grid-cols-7 divide-x divide-y lg:divide-y-0 divide-slate-100 bg-slate-50/30">
           {weather.days.map((day, i) => (
-            <div key={day.date} className={`flex flex-col p-5 hover:bg-slate-50 transition-colors ${i === 0 ? 'bg-orange-50/20' : ''}`}>
+            <div key={day.date}
+              className={`flex flex-col p-5 hover:bg-slate-50 transition-colors ${i === 0 ? 'bg-orange-50/20' : ''}`}>
               <div className="flex justify-between items-center mb-5">
                 <span className={`text-sm font-semibold ${i === 0 ? 'text-orange-600' : 'text-slate-700'}`}>
                   {i === 0 ? 'Hoy' : day.label}
@@ -474,25 +554,31 @@ const WeatherView = ({ sensorId = 's1' }) => {
                   {new Date(day.date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
                 </span>
               </div>
-              
               <div className="flex justify-center my-4">
-                <Sun size={38} strokeWidth={1.5} className={`${radToColor(day.radSum / 12)}`} />
+                <Sun size={38} strokeWidth={1.5} className={radToColor(day.radSum / 12)} />
               </div>
-              
               <div className="flex justify-center items-baseline gap-1.5 mb-5">
                 <span className="text-2xl font-bold tracking-tight text-slate-800">{day.tempMax}°</span>
                 <span className="text-sm font-medium text-slate-400">{day.tempMin}°</span>
               </div>
-              
               <div className="flex flex-col gap-2.5 mt-auto pt-4 border-t border-slate-100">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-orange-500">Rad:</span>
                   <span className="font-semibold text-orange-700">{day.radSum} W</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">Gen:</span>
-                  <span className="font-semibold text-emerald-600">~{day.estGenKwh} A</span>
+                  <span className="text-slate-500">Est:</span>
+                  <span className="font-semibold text-emerald-600">~{day.estGenAh} Ah</span>
                 </div>
+                {/* Real del sensor si existe */}
+                {energyDaily.find(e => e.day === day.date) && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-indigo-500">Real:</span>
+                    <span className="font-semibold text-indigo-600">
+                      {energyDaily.find(e => e.day === day.date)?.gen_ah} Ah
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ))}

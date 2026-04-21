@@ -12,7 +12,6 @@ import {
   Settings2,
   LogOut,
   Sun,
-  UserCircle2,
   Activity,
   Loader2,
   FlaskConical,
@@ -32,6 +31,8 @@ import ForgotPasswordView from './views/ForgotPasswordView';
 import WeatherView from './views/WeatherView';
 import { api } from './services/api';
 import AlertNotifier from './utils/Alertnotifier';
+import EnergyView   from './views/EnergyView';
+import OverviewView from './views/OverviewView';
 
 // ==========================================
 // HELPERS DE SESIÓN
@@ -140,7 +141,10 @@ const SensorSelector = ({ sensors, selected, onChange, loading }) => {
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(v => !v);
+        }}
         disabled={loading}
         className="flex items-center gap-2 px-2 sm:px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-all text-sm font-medium text-gray-700 shadow-sm min-w-[70px] sm:min-w-[90px]"
       >
@@ -173,13 +177,12 @@ const SensorSelector = ({ sensors, selected, onChange, loading }) => {
 const App = () => {
   const [user, setUser] = useState(getStoredUser);
   const [authView, setAuthView] = useState('login');
-  const [activeView, setActiveView] = useState('Latest');
+  const [activeView, setActiveView] = useState('Overview');
   const [openMenu, setOpenMenu] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sensors, setSensors] = useState([]);
   const [selectedSensor, setSelectedSensor] = useState(() => localStorage.getItem('sfa_selected_sensor') || 's1');
   const [loadingSensors, setLoadingSensors] = useState(false);
-  const navRef = useRef(null);
 
   const refreshSensors = useCallback(() => {
     if (!user) return;
@@ -193,13 +196,13 @@ const App = () => {
       .finally(() => setLoadingSensors(false));
   }, [user, selectedSensor]);
 
-  useEffect(() => { refreshSensors(); }, [user]);
+  useEffect(() => { refreshSensors(); }, [user, refreshSensors]);
 
   const handleLogout = () => {
     localStorage.removeItem('sfa_token');
     localStorage.removeItem('sfa_user');
     setUser(null);
-    setActiveView('Latest');
+    setActiveView('Overview');
   };
 
   if (!user) {
@@ -209,10 +212,12 @@ const App = () => {
   }
 
   const menuStructure = [
-    { title: 'Recientes', icon: <Wifi size={18} />, items: [{ label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> }] },
-    { title: 'Estado', icon: <Cpu size={18} />, items: [{ label: 'Variables', id: 'Status', icon: <Server size={16} /> }] },
-    { title: 'Historial', icon: <FileCode size={18} />, items: [{ label: 'Historial', id: 'History', icon: <Info size={16} /> }] },
+    { title: 'Resumen', icon: <LayoutDashboard size={18} />, items: [{ label: 'Panel General', id: 'Overview', icon: <Activity size={16} /> }] },
+    { title: 'Monitor', icon: <Wifi size={18} />, items: [{ label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> }] },
+    { title: 'Variables', icon: <Cpu size={18} />, items: [{ label: 'Detalle Sensores', id: 'Status', icon: <Server size={16} /> }] },
+    { title: 'Historial', icon: <FileCode size={18} />, items: [{ label: 'Logs Históricos', id: 'History', icon: <Info size={16} /> }] },
     { title: 'Alertas', icon: <Bell size={18} />, items: [{ label: 'Umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> }] },
+    { title: 'Energía', icon: <Zap size={18} />, items: [{ label: 'Análisis Energético', id: 'Energy', icon: <Zap size={16} /> }] },
     { title: 'Clima', icon: <Sun size={18} />, items: [{ label: 'Predicción', id: 'Weather', icon: <Sun size={16} /> }] },
   ];
 
@@ -222,7 +227,7 @@ const App = () => {
     <div className="min-h-screen bg-slate-100 flex flex-col w-full pb-20 md:pb-0">
       
       {/* NAVBAR */}
-      <nav ref={navRef} className="bg-white border-b border-gray-200 sticky top-0 z-[100] w-full shadow-sm">
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-[100] w-full shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           
           <div className="flex items-center gap-2 sm:gap-4">
@@ -308,7 +313,6 @@ const App = () => {
               ))}
             </div>
 
-            {/* BOTÓN DE LOGOUT MÓVIL */}
             <div className="p-4 border-t border-gray-100 bg-gray-50 mt-auto">
               <button
                 onClick={() => { handleLogout(); setIsSidebarOpen(false); }}
@@ -338,23 +342,34 @@ const App = () => {
         </header>
 
         <section className="animate-in fade-in duration-500">
-          {activeView === 'Latest' && <LatestView sensorId={selectedSensor} />}
-          {activeView === 'Status' && <StatusView sensorId={selectedSensor} onNavigate={setActiveView} />}
-          {activeView === 'History' && <HistoryView sensorId={selectedSensor} />}
-          {activeView === 'AlertRules' && <AlertRulesView sensorId={selectedSensor} />}
-          {activeView === 'Weather' && <WeatherView sensorId={selectedSensor} />}
+          {activeView === 'Overview'  && <OverviewView  sensorId={selectedSensor} />}
+          {activeView === 'Latest'    && <LatestView    sensorId={selectedSensor} />}
+          {activeView === 'Status'    && <StatusView    sensorId={selectedSensor} onNavigate={setActiveView} />}
+          {activeView === 'History'   && <HistoryView   sensorId={selectedSensor} />}
+          {activeView === 'Energy'    && <EnergyView    sensorId={selectedSensor} />}
+          {activeView === 'AlertRules'&& <AlertRulesView sensorId={selectedSensor} />}
+          {activeView === 'Weather'   && <WeatherView   sensorId={selectedSensor} />}
         </section>
       </main>
 
       {/* MOBILE BOTTOM NAV */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-2 flex justify-around items-center z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe">
-        {menuStructure.slice(0, 4).map((m) => (
-          <button key={m.items[0].id} onClick={() => setActiveView(m.items[0].id)} className={`flex flex-col items-center p-2 rounded-xl transition-all ${activeView === m.items[0].id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t
+        border-gray-200 p-2 flex justify-around items-center z-50
+        shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe">
+        {menuStructure.slice(0, 5).map((m) => (
+          <button
+            key={m.items[0].id}
+            onClick={() => setActiveView(m.items[0].id)}
+            className={`flex flex-col items-center p-2 rounded-xl transition-all
+              ${activeView === m.items[0].id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>
             {m.icon}
-            <span className="text-[9px] font-medium mt-1 uppercase tracking-tighter">{m.title}</span>
+            <span className="text-[9px] font-medium mt-1 uppercase tracking-tighter">
+              {m.title}
+            </span>
           </button>
         ))}
       </nav>
+      
       <AlertNotifier sensorId={selectedSensor} />
     </div>
   );

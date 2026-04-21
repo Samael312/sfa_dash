@@ -3,28 +3,74 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Reiniciamos el comportamiento por defecto para ocupar todo el espacio */
+/* ─── Variables de tema ──────────────────────────────────── */
 :root {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden; /* Evita scroll lateral innecesario */
-  background-color: #f3f4f6; /* Un gris muy suave de fondo (bg-gray-100) */
+  --bg-page:       #f1f5f9;   /* slate-100 */
+  --bg-surface:    #ffffff;
+  --bg-surface-alt:#f8fafc;   /* slate-50 */
+  --border:        #e2e8f0;   /* slate-200 */
+  --text-primary:  #0f172a;   /* slate-900 */
+  --text-secondary:#64748b;   /* slate-500 */
+  --text-muted:    #94a3b8;   /* slate-400 */
+}
+
+.dark {
+  --bg-page:       #111827;   /* gray-900 */
+  --bg-surface:    #1e2433;
+  --bg-surface-alt:#252d3d;
+  --border:        #2e3a4e;
+  --text-primary:  #f1f5f9;   /* slate-100 */
+  --text-secondary:#94a3b8;   /* slate-400 */
+  --text-muted:    #64748b;   /* slate-500 */
+}
+
+/* ─── Base ───────────────────────────────────────────────── */
+:root, body {
+  width:      100%;
+  height:     100%;
+  margin:     0;
+  padding:    0;
+  overflow-x: hidden;
 }
 
 body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  display: block; 
+  background-color: var(--bg-page);
+  color:            var(--text-primary);
+  transition:       background-color 0.2s ease, color 0.2s ease;
 }
 
 #root {
-  width: 100%;
-  height: 100%;
-  /* Aseguramos que el div principal de React también se expanda */
-  display: flex;
+  width:          100%;
+  min-height:     100%;
+  display:        flex;
   flex-direction: column;
 }
+
+/* ─── Clases utilitarias de tema ─────────────────────────── */
+/* Usar estas en lugar de bg-white / bg-slate-50 / etc.      */
+/* para que respondan automáticamente al modo oscuro          */
+
+.bg-surface      { background-color: var(--bg-surface); }
+.bg-surface-alt  { background-color: var(--bg-surface-alt); }
+.border-theme    { border-color: var(--border); }
+.text-primary    { color: var(--text-primary); }
+.text-secondary  { color: var(--text-secondary); }
+.text-muted      { color: var(--text-muted); }
+
+/* ─── Scrollbar personalizada ────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background:    var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ─── Animaciones ─────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%);  }
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

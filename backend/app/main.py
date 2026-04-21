@@ -1,7 +1,7 @@
 """
 main.py
 -------
-API FastAPI del dashboard SFA — con autenticación JWT.
+API FastAPI del dashboard SFA — con autenticación JWT y WebSocket en tiempo real.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
 from app.auth import decode_token
 from app.logic.Sfa_mock import run_mock
+from app.ws_manager import ws_manager, start_pg_listener
 from app.api_client import (
     get_latest, get_history, get_status, get_sensors,
     get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule,
@@ -29,6 +30,9 @@ from app.api_client import (
     get_multi_sensor_history,
 )
 from app.routes.auth_routes import router as auth_router
+from app.alert_engine import snooze_alert, cancel_snooze, get_snoozes, evaluate_all, TREND_CONFIG
+from pydantic import BaseModel
+from typing import Optional
 
 
 SENSOR_ID = os.getenv("SENSOR_ID", "s1")
@@ -55,6 +59,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             or path.startswith("/openapi")
             or path.startswith("/redoc")
         ):
+            return await call_next(request)
+
+        # Los WebSockets se autentican con token en query param, no en header
+        if path.startswith("/ws/"):
             return await call_next(request)
 
         if path.startswith("/internal/dashboard/"):
@@ -92,7 +100,11 @@ class AlertRuleUpdate(BaseModel):
     level:     str
     message:   str
 
-
+ 
+class SnoozeBody(BaseModel):
+    sensor_id: str
+    variable:  Optional[str] = None
+    hours:     float = 2.0
 # ==========================================
 # LIFESPAN
 # ==========================================
@@ -100,7 +112,20 @@ class AlertRuleUpdate(BaseModel):
 async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
     print(f"📡 SFA arrancado para sensor '{SENSOR_ID}'")
+
+    # Iniciar listener PostgreSQL NOTIFY → WebSocket
+    pg_listener_task = asyncio.create_task(start_pg_listener())
+
     yield
+
+    # Cancelar listener PG
+    pg_listener_task.cancel()
+    try:
+        await pg_listener_task
+    except asyncio.CancelledError:
+        pass
+
+    # Cancelar todos los mocks activos al apagar
     for sensor_id, info in list(_mock_tasks.items()):
         info["stop_event"].set()
         info["task"].cancel()
@@ -109,6 +134,7 @@ async def lifespan(app: FastAPI):
         except (asyncio.CancelledError, Exception):
             pass
         print(f"🛑 Mock [{sensor_id}] detenido al apagar.")
+
     print("🛑 Aplicación cerrada.")
 
 
@@ -158,6 +184,48 @@ app.include_router(auth_router)
 
 BASE      = "/internal/dashboard/sfa"
 MOCK_BASE = "/internal/dashboard/mock"
+
+
+# ==========================================
+# WEBSOCKET
+# ==========================================
+@app.websocket("/ws/{sensor_id}")
+async def websocket_endpoint(websocket: WebSocket, sensor_id: str):
+    """
+    WebSocket por sensor. Autenticación por query param:
+      ws://host/ws/s1?token=eyJ...
+
+    Mensajes que recibe el cliente:
+      { "type": "reading", "sensor_id": "s1", "variable": "radiacion",
+        "value": 523.4, "timestamp": "...", "source": "mqtt" }
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Token requerido")
+        return
+
+    payload = decode_token(token)
+    if not payload:
+        await websocket.close(code=4001, reason="Token inválido o expirado")
+        return
+
+    await ws_manager.connect(websocket, sensor_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, sensor_id)
+    except Exception:
+        ws_manager.disconnect(websocket, sensor_id)
+
+
+@app.get(f"{BASE}/ws/status")
+def endpoint_ws_status():
+    """Estado de las conexiones WebSocket activas."""
+    return {
+        "total_connections": ws_manager.total_connections,
+        "active_sensors":    ws_manager.active_sensors,
+    }
 
 
 # ==========================================
@@ -350,14 +418,12 @@ def endpoint_clear_alerts(sensor_id: str = Query(...)):
 # ==========================================
 # ENDPOINTS EXTENDIDOS
 # ==========================================
-
 @app.get(f"{BASE}/history/aggregated")
 def endpoint_history_aggregated(
     sensor_id: str = Query(...),
     variable:  str = Query(...),
     hours:     int = Query(24, ge=1, le=720),
 ):
-    """Historial con downsampling automático. Incluye avg, min, max, stddev por bucket."""
     try:
         result = get_history_aggregated(sensor_id, variable, hours)
         if result is None:
@@ -377,7 +443,6 @@ def endpoint_stats(
     variable:  str = Query(...),
     hours:     int = Query(24, ge=1, le=720),
 ):
-    """Estadísticas globales de una variable: min, max, media, stddev, conteo y último valor."""
     try:
         result = get_stats(sensor_id, variable, hours)
         if result is None:
@@ -394,7 +459,6 @@ def endpoint_energy_daily(
     sensor_id: str = Query(...),
     days:      int = Query(7, ge=1, le=90),
 ):
-    """Energía acumulada por día (Ah): generada, consumida y balance neto."""
     try:
         result = get_energy_daily(sensor_id, days)
         if not result:
@@ -411,7 +475,6 @@ def endpoint_energy_balance(
     sensor_id: str = Query(...),
     hours:     int = Query(24, ge=1, le=720),
 ):
-    """Balance energético histórico: generación vs consumo vs neto con downsampling."""
     try:
         result = get_energy_balance(sensor_id, hours)
         if not result["points"]:
@@ -427,13 +490,11 @@ def endpoint_energy_balance(
 def endpoint_connectivity(
     sensor_ids: str = Query(..., description="IDs separados por coma: s1,s2,s3"),
 ):
-    """Estado de conectividad de uno o varios sensores (offline si última lectura > 5 min)."""
     try:
         ids = [s.strip() for s in sensor_ids.split(",") if s.strip()]
         if not ids:
             raise HTTPException(status_code=422, detail="sensor_ids vacío.")
-        result = get_sensor_connectivity(ids)
-        return {"sensors": result}
+        return {"sensors": get_sensor_connectivity(ids)}
     except HTTPException:
         raise
     except Exception as e:
@@ -448,7 +509,6 @@ def endpoint_alerts_history(
     level:     Optional[str] = Query(None, description="warning | critical"),
     variable:  Optional[str] = Query(None),
 ):
-    """Historial completo de alertas paginado, sin límite de 24h. Filtros: level, variable."""
     try:
         if level and level not in ("warning", "critical"):
             raise HTTPException(status_code=422, detail="level debe ser 'warning' o 'critical'.")
@@ -465,7 +525,6 @@ def endpoint_history_multi(
     variable:   str = Query(...),
     hours:      int = Query(24, ge=1, le=720),
 ):
-    """Historial de una variable para múltiples sensores simultáneamente."""
     try:
         ids = [s.strip() for s in sensor_ids.split(",") if s.strip()]
         if not ids:
@@ -478,8 +537,40 @@ def endpoint_history_multi(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
+ 
+@app.post(f"{BASE}/alerts/snooze", status_code=201)
+def _snooze_create(body: SnoozeBody):
+    try:
+        if body.hours <= 0 or body.hours > 168:
+            raise HTTPException(422, "hours entre 0 y 168")
+        result = snooze_alert(body.sensor_id, body.variable, body.hours)
+        return {"snoozed": True, **result}
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(500, str(e))
+ 
+@app.delete(f"{BASE}/alerts/snooze")
+def _snooze_cancel(sensor_id: str = Query(...), variable: Optional[str] = Query(None)):
+    try:
+        deleted = cancel_snooze(sensor_id, variable)
+        return {"cancelled": deleted > 0, "deleted": deleted}
+    except Exception as e: raise HTTPException(500, str(e))
+ 
+@app.get(f"{BASE}/alerts/snooze")
+def _snooze_list(sensor_id: str = Query(...)):
+    try:
+        return {"sensor_id": sensor_id, "snoozes": get_snoozes(sensor_id)}
+    except Exception as e: raise HTTPException(500, str(e))
+ 
+@app.get(f"{BASE}/alerts/evaluate/full")
+def _evaluate_full(sensor_id: str = Query(...)):
+    try:
+        return evaluate_all(sensor_id)
+    except ValueError as e: raise HTTPException(503, str(e))
+    except Exception as e: raise HTTPException(500, str(e))
+ 
+@app.get(f"{BASE}/alerts/trends/config")
+def _trends_config():
+    return {"config": TREND_CONFIG}
 # ==========================================
 # ENTRYPOINT
 # ==========================================
