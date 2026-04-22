@@ -28,14 +28,15 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 // Registrar el plugin de zoom
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
+// ── Variables con rangos fijos de eje Y ───────────────────────
 const VARIABLES = [
-  { key: 'radiacion',  label: 'Radiación solar', unit: 'W/m²', color: '#F59E0B', tcolor: 'text-amber-500'   },
-  { key: 'temp_amb',   label: 'Temp. ambiente',  unit: '°C',   color: '#F43F5E', tcolor: 'text-rose-500'    },
-  { key: 'i_generada', label: 'Corriente gen.',  unit: 'A',    color: '#10B981', tcolor: 'text-emerald-500' },
-  { key: 'v_bateria',  label: 'Tensión batería', unit: 'V',    color: '#7C3AED', tcolor: 'text-purple-800'  },
-  { key: 'temp_pan',   label: 'Temp. panel',     unit: '°C',   color: '#3B82F6', tcolor: 'text-blue-800'    },
-  { key: 'i_carga',    label: 'Corriente carga', unit: 'A',    color: '#06B6D4', tcolor: 'text-cyan-500'    },
-  { key: 'temp_bat',   label: 'Temp. batería',   unit: '°C',   color: '#F97316', tcolor: 'text-orange-500'  },
+  { key: 'radiacion',  label: 'Radiación solar', unit: 'W/m²', color: '#F59E0B', tcolor: 'text-amber-500',   yMin: 0,  yMax: 1000 },
+  { key: 'temp_amb',   label: 'Temp. ambiente',  unit: '°C',   color: '#F43F5E', tcolor: 'text-rose-500',    yMin: 10, yMax: 60   },
+  { key: 'i_generada', label: 'Corriente gen.',  unit: 'A',    color: '#10B981', tcolor: 'text-emerald-500', yMin: 0,  yMax: 1    },
+  { key: 'v_bateria',  label: 'Tensión batería', unit: 'V',    color: '#7C3AED', tcolor: 'text-purple-800',  yMin: 10, yMax: 16   },
+  { key: 'temp_pan',   label: 'Temp. panel',     unit: '°C',   color: '#3B82F6', tcolor: 'text-blue-800',    yMin: 10, yMax: 60   },
+  { key: 'i_carga',    label: 'Corriente carga', unit: 'A',    color: '#06B6D4', tcolor: 'text-cyan-500',    yMin: 0,  yMax: 1    },
+  { key: 'temp_bat',   label: 'Temp. batería',   unit: '°C',   color: '#F97316', tcolor: 'text-orange-500',  yMin: 10, yMax: 60   },
 ];
 
 const TIME_FILTERS = [
@@ -139,22 +140,21 @@ const HistoryView = ({ sensorId = 's1' }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showStats,    setShowStats]    = useState(true);
 
-  // Referencias para el modo "Búsqueda Automática" y para las instancias de las gráficas (para el Zoom)
   const autoSearchRef = useRef(true); 
   const chartRefs     = useRef({});
 
-  // Cargar lista de sensores para comparación
+  // Cargar lista de sensores
   useEffect(() => {
     api.getSensors()
       .then(res => setAllSensors(res?.sensors ?? []))
       .catch(() => {});
   }, []);
 
-  // Carga principal: historial agregado + stats por variable
+  // Carga principal
   const load = useCallback(async (manual = false) => {
     if (manual) {
       setIsRefreshing(true);
-      autoSearchRef.current = false; // Detener auto-búsqueda si el usuario actualiza a mano
+      autoSearchRef.current = false;
     } else {
       setLoading(true);
     }
@@ -166,18 +166,17 @@ const HistoryView = ({ sensorId = 's1' }) => {
         Promise.all(VARIABLES.map(v => api.getStats(sensorId, v.key, hours).catch(() => null))),
       ]);
 
-      // Lógica de Fallback Automático: Verificar si TODAS las consultas vinieron vacías o dieron error
       const hasData = histResults.some(res => res && res.points && res.points.length > 0);
 
+      // ✅ CORRECCIÓN 1: Buscar hacia ADELANTE en el tiempo (ampliar la red)
       if (!hasData && autoSearchRef.current) {
         const currentIndex = TIME_FILTERS.findIndex(f => f.val === hours);
         if (currentIndex >= 0 && currentIndex < TIME_FILTERS.length - 1) {
-          const nextHours = TIME_FILTERS[currentIndex - 1].val;
+          const nextHours = TIME_FILTERS[currentIndex + 1].val; // Cambiado de -1 a +1
           console.log(`[Auto-Búsqueda] Sin datos en ${hours}h. Buscando en ${nextHours}h...`);
           setHours(nextHours);
-          return; // Salimos prematuramente, el cambio de estado 'hours' relanzará este hook.
+          return; 
         } else {
-          // Si llegamos aquí, hemos probado todos los filtros y no hay nada
           autoSearchRef.current = false;
         }
       }
@@ -202,7 +201,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Carga multi-sensor cuando hay sensores en comparación
+  // Carga multi-sensor
   useEffect(() => {
     if (!compareIds.length) { setMultiData({}); return; }
     const allIds = [sensorId, ...compareIds];
@@ -220,22 +219,19 @@ const HistoryView = ({ sensorId = 's1' }) => {
     });
   }, [compareIds, sensorId, hours]);
 
-  // Configuración base de ChartJS (Con Zoom Habilitado)
-  const baseOptions = useMemo(() => ({
+  // ✅ CORRECCIÓN 2: getBaseOptions ahora acepta la variable 'v' como argumento
+  const getBaseOptions = useCallback((v) => ({
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: compareIds.length > 0, position: 'top' },
       zoom: {
-        pan: {
-          enabled: true,
-          mode: 'x', // Permite arrastrar en el eje X
-        },
+        pan: { enabled: true, mode: 'x' },
         zoom: {
-          wheel: { enabled: true }, // Zoom con rueda del ratón
-          pinch: { enabled: true }, // Zoom pellizcando (móviles)
-          mode: 'x', // Solo zoom temporal (eje X)
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x',
         }
       },
       tooltip: {
@@ -260,6 +256,8 @@ const HistoryView = ({ sensorId = 's1' }) => {
         border: { display: false },
       },
       y: {
+        min: v.yMin, // Ahora no lanzará ReferenceError
+        max: v.yMax,
         ticks:  { maxTicksLimit: 5, font: { size: 11 }, color: '#94A3B8' },
         grid:   { color: '#F1F5F9', borderDash: [4, 4] },
         border: { display: false },
@@ -267,7 +265,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
     },
   }), [compareIds.length]);
 
-  // Construir datasets para cada variable
   const buildChartData = useCallback((v) => {
     const isMulti = compareIds.length > 0 && multiData[v.key];
 
@@ -295,7 +292,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
       };
     }
 
-    // Sensor único
     const points = history[v.key]?.points ?? [];
     return {
       labels: points.map(p => {
@@ -319,7 +315,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
     };
   }, [history, multiData, compareIds, hours]);
 
-  // Secciones para SelectDash
+  // ✅ CORRECCIÓN 3: Actualizadas las dependencias del useMemo
   const chartSections = useMemo(() => VARIABLES.map(v => ({
     id:          v.key,
     title:       v.label,
@@ -332,8 +328,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
       return (
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all flex flex-col group">
-
-          {/* Cabecera tarjeta */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
               <span className="w-3 h-3 rounded-full shadow-sm flex-shrink-0"
@@ -347,10 +341,9 @@ const HistoryView = ({ sensorId = 's1' }) => {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg uppercase tracking-wider mr-2">
-                {v.unit}
+                {v.yMin}-{v.yMax} {v.unit}
               </span>
               
-              {/* Botón para resetear Zoom (Solo se muestra en hover) */}
               <button
                 onClick={() => chartRefs.current[v.key]?.resetZoom()}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
@@ -369,12 +362,10 @@ const HistoryView = ({ sensorId = 's1' }) => {
             </div>
           </div>
 
-          {/* Estadísticas */}
           {showStats && stats && (
             <StatsCard stats={stats} unit={v.unit} color={v.color} />
           )}
 
-          {/* Gráfica */}
           <div className="flex-1 relative w-full min-h-[200px] mt-4">
             {isEmpty ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center
@@ -384,9 +375,9 @@ const HistoryView = ({ sensorId = 's1' }) => {
               </div>
             ) : (
               <Line
-                ref={(el) => { chartRefs.current[v.key] = el; }} // Guardar ref para el zoom
+                ref={(el) => { chartRefs.current[v.key] = el; }} 
                 data={data}
-                options={baseOptions}
+                options={getBaseOptions(v)} // ✅ CORRECCIÓN 4: Pasar el objeto ejecutando la función
                 role="img"
                 aria-label={`Historial de ${v.label} en las últimas ${hours}h`}
               />
@@ -395,16 +386,13 @@ const HistoryView = ({ sensorId = 's1' }) => {
         </div>
       );
     },
-  })), [history, buildChartData, baseOptions, showStats, sensorId, hours]);
+  })), [history, buildChartData, getBaseOptions, showStats, sensorId, hours]);
 
   return (
     <div className="flex flex-col gap-6 w-full mx-auto p-4 md:p-6 text-slate-800 font-sans animate-in fade-in duration-500">
-
-      {/* HEADER */}
       <div className="bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-slate-100
         flex flex-col gap-5">
 
-        {/* Fila 1: título + acciones */}
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="flex items-center gap-5">
             <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm border border-indigo-100/50">
@@ -422,7 +410,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            {/* Toggle estadísticas */}
             <button
               onClick={() => setShowStats(v => !v)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all
@@ -447,7 +434,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
           </div>
         </div>
 
-        {/* Fila 2: filtros de tiempo */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="overflow-x-auto pb-1 -mb-1 scrollbar-hide flex-1">
             <div className="flex bg-slate-100/80 p-1 rounded-xl w-max border border-slate-200/50">
@@ -455,7 +441,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
                 <button
                   key={opt.val}
                   onClick={() => {
-                    autoSearchRef.current = false; // El usuario tomó el control, detenemos la auto-búsqueda
+                    autoSearchRef.current = false; 
                     setHours(opt.val);
                   }}
                   className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
@@ -471,7 +457,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
           </div>
         </div>
 
-        {/* Fila 3: comparación multi-sensor */}
         {allSensors.length > 1 && (
           <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
             <GitCompare size={15} className="text-slate-400 flex-shrink-0" />
@@ -485,7 +470,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
         )}
       </div>
 
-      {/* ERROR */}
       {error && !autoSearchRef.current && (
         <div className="bg-white border border-rose-100 p-5 flex items-center gap-4
           text-rose-700 shadow-sm rounded-2xl animate-in slide-in-from-top-2">
@@ -496,7 +480,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
         </div>
       )}
 
-      {/* GRÁFICAS */}
       {loading && !Object.keys(history).length ? (
         <div className="flex flex-col items-center justify-center h-96 bg-slate-50/50
           rounded-3xl border border-dashed border-slate-200 animate-in fade-in">
@@ -513,7 +496,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
         />
       )}
 
-      {/* SOC */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="border-b border-slate-100 px-6 py-5 flex items-center gap-2 bg-slate-50/30">
           <Activity size={20} className="text-indigo-400" />

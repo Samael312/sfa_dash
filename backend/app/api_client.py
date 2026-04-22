@@ -82,7 +82,9 @@ def get_history(sensor_id: str, variable: str, hours: int = 24) -> list[dict] | 
 def get_status(sensor_id: str) -> dict:
     latest = get_latest(sensor_id)
     v       = latest.get("v_bateria", 12.0)
-    soc_pct = round(max(0.0, min(100.0, (v - 11.0) / 3.4 * 100)), 1)
+    V_BAT_MIN = 10.8
+    V_BAT_MAX = 14.4
+    soc_pct = round(max(0.0, min(100.0, (v - V_BAT_MIN) / (V_BAT_MAX - V_BAT_MIN) * 100)), 1)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -381,7 +383,7 @@ def get_history_aggregated(sensor_id: str, variable: str, hours: int = 24) -> di
             else:
                 cur.execute("""
                     SELECT
-                        date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket
+                        date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
                         AVG(value)                  AS avg_val,
                         AVG(value)                  AS avg_val2,
                         MIN(value)                  AS min_val,

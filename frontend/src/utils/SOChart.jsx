@@ -20,7 +20,7 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
-const V_MIN  = 11.0;
+const V_MIN  = 10.8; 
 const V_MAX  = 14.4;
 const toSOC  = v => Math.round(Math.max(0, Math.min(100, (v - V_MIN) / (V_MAX - V_MIN) * 100)) * 10) / 10;
 
@@ -160,8 +160,8 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
       yVolt: {
         type: 'linear',
         position: 'right',
-        min: 10.5,
-        max: 15.0,
+        min: 10,
+        max: 16,
         ticks: { font: { size: 10 }, color: '#10b981', callback: v => `${v}V` },
         grid: { display: false }
       },
@@ -176,7 +176,12 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded ml-auto uppercase">
           Últimas {hours}h
         </span>
-        
+        <span className="text-[10px] font-bold text-blue-400 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
+          SOC 0–100%
+        </span>
+        <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+          V 10–16V
+        </span>
         <div className="flex items-center gap-1 ml-2">
           <button
             onClick={() => chartRef.current?.resetZoom()} 

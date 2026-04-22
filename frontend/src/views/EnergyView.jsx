@@ -180,38 +180,14 @@ const EnergyView = ({ sensorId = 's1' }) => {
     return {
       labels,
       datasets: [
+        { label: 'Generada (Ah)',  data: energyDaily.map(d => d.gen_ah),  backgroundColor: 'rgba(16,185,129,0.75)', borderColor: '#10B981', borderWidth: 1.5, borderRadius: 6, borderSkipped: false },
+        { label: 'Consumida (Ah)', data: energyDaily.map(d => d.load_ah), backgroundColor: 'rgba(99,102,241,0.65)', borderColor: '#6366F1', borderWidth: 1.5, borderRadius: 6, borderSkipped: false },
         {
-          label:           'Generada (Ah)',
-          data:            energyDaily.map(d => d.gen_ah),
-          backgroundColor: 'rgba(16,185,129,0.75)',
-          borderColor:     '#10B981',
-          borderWidth:     1.5,
-          borderRadius:    6,
-          borderSkipped:   false,
-        },
-        {
-          label:           'Consumida (Ah)',
-          data:            energyDaily.map(d => d.load_ah),
-          backgroundColor: 'rgba(99,102,241,0.65)',
-          borderColor:     '#6366F1',
-          borderWidth:     1.5,
-          borderRadius:    6,
-          borderSkipped:   false,
-        },
-        {
-          label:           'Neto (Ah)',
-          data:            energyDaily.map(d => d.net_ah),
-          backgroundColor: energyDaily.map(d =>
-            d.net_ah >= 0
-              ? 'rgba(245,158,11,0.5)'
-              : 'rgba(239,68,68,0.5)'
-          ),
-          borderColor:     energyDaily.map(d =>
-            d.net_ah >= 0 ? '#F59E0B' : '#EF4444'
-          ),
-          borderWidth:     1.5,
-          borderRadius:    4,
-          borderSkipped:   false,
+          label: 'Neto (Ah)',
+          data: energyDaily.map(d => d.net_ah),
+          backgroundColor: energyDaily.map(d => d.net_ah >= 0 ? 'rgba(245,158,11,0.5)' : 'rgba(239,68,68,0.5)'),
+          borderColor:     energyDaily.map(d => d.net_ah >= 0 ? '#F59E0B' : '#EF4444'),
+          borderWidth: 1.5, borderRadius: 4, borderSkipped: false,
         },
       ],
     };
@@ -229,40 +205,9 @@ const EnergyView = ({ sensorId = 's1' }) => {
     return {
       labels,
       datasets: [
-        {
-          label:            'Generada (A)',
-          data:             balance.points.map(p => p.i_generada),
-          borderColor:      '#10B981',
-          backgroundColor:  'rgba(16,185,129,0.1)',
-          borderWidth:      2.5,
-          pointRadius:      0,
-          pointHoverRadius: 5,
-          tension:          0.4,
-          fill:             true,
-        },
-        {
-          label:            'Consumida (A)',
-          data:             balance.points.map(p => p.i_carga),
-          borderColor:      '#6366F1',
-          backgroundColor:  'rgba(99,102,241,0.08)',
-          borderWidth:      2.5,
-          pointRadius:      0,
-          pointHoverRadius: 5,
-          tension:          0.4,
-          fill:             true,
-        },
-        {
-          label:            'Neto (A)',
-          data:             balance.points.map(p => p.net),
-          borderColor:      '#F59E0B',
-          backgroundColor:  'transparent',
-          borderWidth:      1.5,
-          borderDash:       [5, 4],
-          pointRadius:      0,
-          pointHoverRadius: 5,
-          tension:          0.4,
-          fill:             false,
-        },
+        { label: 'Generada (A)',  data: balance.points.map(p => p.i_generada), borderColor: '#10B981', backgroundColor: 'rgba(16,185,129,0.1)',  borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.4, fill: true  },
+        { label: 'Consumida (A)', data: balance.points.map(p => p.i_carga),    borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.4, fill: true  },
+        { label: 'Neto (A)',      data: balance.points.map(p => p.net),         borderColor: '#F59E0B', backgroundColor: 'transparent',           borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0.4, fill: false },
       ],
     };
   }, [balance, balanceHours]);
@@ -327,6 +272,8 @@ const EnergyView = ({ sensorId = 's1' }) => {
         border: { display: false },
       },
       y: {
+        min: 0,
+        max: 1,
         grid:   { color: '#F1F5F9', borderDash: [4, 4] },
         ticks:  { font: { size: 11 }, color: '#94A3B8', callback: v => `${v} A` },
         border: { display: false },
@@ -364,6 +311,9 @@ const EnergyView = ({ sensorId = 's1' }) => {
               <span>Nodo activo:</span>
               <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5
                 rounded-md font-mono text-xs">{sensorId}</span>
+              <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded hidden sm:inline">
+                Panel 10W · Batería 12V 7.2Ah
+              </span>
             </div>
           </div>
         </div>
@@ -551,12 +501,19 @@ const EnergyView = ({ sensorId = 's1' }) => {
                 Balance en Tiempo Real
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Corriente generada vs consumida (agrupado: {balance?.interval ?? '—'})
+                Corriente generada vs consumida (agrupado: {balance?.interval ?? '—'}) · Rango fijo 0–1A (ACS730, panel 10W)
               </p>
             </div>
           </div>
 
           {/* Selector horas balance */}
+          <div className="flex items-center gap-3">
+            {/* Badge rango fijo */}
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded hidden sm:inline">
+              0–1 A
+            </span>
+          </div>
+
           <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
             {BALANCE_HOURS.map(opt => (
               <button key={opt.val} onClick={() => setBalanceHours(opt.val)}

@@ -40,6 +40,11 @@ const VARIABLES = [
 
 const TREND_THRESHOLD = 0.05;
 
+// Constantes de la batería plomo-ácido 12V 7.2Ah (controlador STECA 10A)
+const V_BAT_MIN = 10.8;
+const V_BAT_MAX = 14.4;
+const voltToSOC = v => Math.round(Math.max(0, Math.min(100, (v - V_BAT_MIN) / (V_BAT_MAX - V_BAT_MIN) * 100)));
+
 // ── Sparkline mini-gráfica ────────────────────────────────────
 const Sparkline = ({ points, color }) => {
   if (!points?.length) return <div className="h-10 flex items-center justify-center text-slate-200 text-xs">—</div>;
@@ -247,7 +252,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
 
   // Batería
   const soc = current?.v_bateria != null
-    ? Math.round(Math.max(0, Math.min(100, (current.v_bateria - 11.0) / 3.4 * 100)))
+    ? voltToSOC(current.v_bateria)
     : null;
 
   const battColor = soc == null ? 'bg-slate-200'
@@ -407,6 +412,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
             <Battery size={13} />
             <span>Tensión: <strong className="text-slate-700">{current?.v_bateria ?? '—'} V</strong></span>
+            <span className="ml-auto text-[10px] text-slate-300">10.8–14.4V · 12V 7.2Ah</span>
           </div>
         </div>
 
