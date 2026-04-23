@@ -237,4 +237,35 @@ export const api = {
     const res = await authAxios.get(`${API_BASE}/alerts/trends/config`);
     return res.data;
   },
+
+  //──────────────────── SOC - Estado de Carga de la batería ────────────────────
+  /** Recalcula el SOC con Coulomb Counting (o OCV si es madrugada y hay reposo). */
+  computeSoc: async (sensorId = 's1') => {
+    const res = await authAxios.post(`${API_BASE}/soc/compute`, null, {
+      params: { sensor_id: sensorId }
+    });
+    return res.data;
+  },
+
+  /** Fuerza una calibración OCV inmediata si la batería está en reposo. */
+  calibrateSoc: async (sensorId = 's1') => {
+    const res = await authAxios.post(`${API_BASE}/soc/calibrate`, null, {
+      params: { sensor_id: sensorId }
+    });
+    return res.data;
+  },
+
+  /** Devuelve la tabla OCV→SOC y los parámetros de la batería. */
+  getSocOcvTable: async () => {
+    const res = await authAxios.get(`${API_BASE}/soc/ocv-table`);
+    return res.data;
+  },
+  
+  /** Convierte un voltaje OCV a SOC (para diagnóstico). */
+  getSocFromVoltage: async (voltage, sensorId = 's1') => {
+    const res = await authAxios.get(`${API_BASE}/soc/ocv-to-soc`, {
+      params: { sensor_id: sensorId, voltage }
+    });
+    return res.data;
+  },
 };

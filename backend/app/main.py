@@ -34,6 +34,8 @@ from app.routes.auth_routes import router as auth_router
 from app.alert_engine import snooze_alert, cancel_snooze, get_snoozes, evaluate_all, TREND_CONFIG
 from pydantic import BaseModel
 from typing import Optional
+from app.routes.soc_routes import router as soc_router
+from app.logic.soc_worker import soc_worker_loop   
 
 
 SENSOR_ID = os.getenv("SENSOR_ID", "s1")
@@ -106,6 +108,8 @@ class SnoozeBody(BaseModel):
     sensor_id: str
     variable:  Optional[str] = None
     hours:     float = 2.0
+
+
 # ==========================================
 # LIFESPAN
 # ==========================================
@@ -114,26 +118,33 @@ async def lifespan(app: FastAPI):
     print("🚀 Iniciando aplicación…")
     print(f"📡 SFA arrancado para sensor '{SENSOR_ID}'")
 
+    soc_task = asyncio.create_task(soc_worker_loop(interval_s=600))
     # Iniciar listener PostgreSQL NOTIFY → WebSocket
     pg_listener_task = asyncio.create_task(start_pg_listener())
-
-    yield
-
-    # Cancelar listener PG
+    
+    yield  # Aquí es donde la app de FastAPI está viva y recibiendo peticiones
+    
+    # === FASE DE APAGADO ===
+    soc_task.cancel()
     pg_listener_task.cancel()
-    try:
-        await pg_listener_task
-    except asyncio.CancelledError:
-        pass
+    
+    # 1. Esperamos ambas tareas a la vez. 
+    # return_exceptions=True atrapa CancelledError y cualquier otra excepción, 
+    # garantizando que el código de abajo siempre se ejecute.
+    await asyncio.gather(soc_task, pg_listener_task, return_exceptions=True)
 
-    # Cancelar todos los mocks activos al apagar
+    # 2. Cancelar todos los mocks activos al apagar
     for sensor_id, info in list(_mock_tasks.items()):
         info["stop_event"].set()
         info["task"].cancel()
         try:
             await info["task"]
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            # Es buena práctica loguear si un mock falló de forma inesperada al cerrar
+            print(f"⚠️ Error inesperado al cerrar mock [{sensor_id}]: {e}")
+            
         print(f"🛑 Mock [{sensor_id}] detenido al apagar.")
 
     print("🛑 Aplicación cerrada.")
@@ -182,6 +193,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(soc_router)
 
 BASE      = "/internal/dashboard/sfa"
 MOCK_BASE = "/internal/dashboard/mock"
