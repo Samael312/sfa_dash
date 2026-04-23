@@ -240,6 +240,14 @@ export const api = {
 
   //──────────────────── SOC - Estado de Carga de la batería ────────────────────
   /** Recalcula el SOC con Coulomb Counting (o OCV si es madrugada y hay reposo). */
+  /** SOC actual almacenado (lectura rápida, sin recalcular). */
+  getSocCurrent: async (sensorId = 's1') => {
+    const res = await authAxios.get(`${API_BASE}/soc/current`, {
+      params: { sensor_id: sensorId }
+    });
+    return res.data;
+  },
+  
   computeSoc: async (sensorId = 's1') => {
     const res = await authAxios.post(`${API_BASE}/soc/compute`, null, {
       params: { sensor_id: sensorId }
