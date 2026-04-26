@@ -81,10 +81,18 @@ def get_history(sensor_id: str, variable: str, hours: int = 24) -> list[dict] | 
 
 def get_status(sensor_id: str) -> dict:
     latest = get_latest(sensor_id)
-    v       = latest.get("v_bateria", 12.0)
-    V_BAT_MIN = 10.8
-    V_BAT_MAX = 14.4
-    soc_pct = round(max(0.0, min(100.0, (v - V_BAT_MIN) / (V_BAT_MAX - V_BAT_MIN) * 100)), 1)
+
+    # ── SOC: usar motor Coulomb (soc_state) con fallback a voltaje ──
+    try:
+        from app.logic.soc_engine import get_soc_state
+        soc_data = get_soc_state(sensor_id)
+        soc_pct  = soc_data.get("soc_pct", 50.0)
+    except Exception:
+        v         = latest.get("v_bateria", 12.0)
+        V_BAT_MIN = 10.8
+        V_BAT_MAX = 14.4
+        soc_pct   = round(max(0.0, min(100.0, (v - V_BAT_MIN) / (V_BAT_MAX - V_BAT_MIN) * 100)), 1)
+
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -99,16 +107,17 @@ def get_status(sensor_id: str) -> dict:
             rows = cur.fetchall()
         alerts = [
             {
-                "level": lv, 
-                "variable": va, 
-                "message": msg, 
+                "level": lv,
+                "variable": va,
+                "message": msg,
                 "timestamp": _fmt_ts(ts),
                 "value": val
             }
-            for lv, va, msg, ts, val in rows 
+            for lv, va, msg, ts, val in rows
         ]
     finally:
         release_conn(conn)
+
     return {
         "mode":             "postgresql",
         "connected":        True,
