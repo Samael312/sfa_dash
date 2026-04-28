@@ -149,7 +149,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
 
       setConnectivity(connRes?.sensors ?? []);
       setAlerts(statusRes?.alerts ?? []);
-      setEnergySummary(energyRes?.data?.[0] ?? null);
+      setEnergySummary(energyRes?.data?.at(-1) ?? null);
       // ── NUEVO ────────────────────────────────────────────────
       setSocData(socRes);
       setLastUpdate(new Date());

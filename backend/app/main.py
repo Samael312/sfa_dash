@@ -14,7 +14,6 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
