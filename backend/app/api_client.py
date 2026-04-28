@@ -489,48 +489,54 @@ def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                WITH gen AS (
+                WITH gen_raw AS (
                     SELECT
                         DATE(timestamp AT TIME ZONE 'UTC') AS day,
-                        SUM(
-                            value * GREATEST(
-                                EXTRACT(EPOCH FROM (
-                                    timestamp - LAG(timestamp) OVER (
-                                        PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
-                                        ORDER BY timestamp
-                                    )
-                                )), 0
-                            ) / 3600
-                        ) AS gen_ah
+                        value,
+                        GREATEST(
+                            EXTRACT(EPOCH FROM (
+                                timestamp - LAG(timestamp) OVER (
+                                    PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
+                                    ORDER BY timestamp
+                                )
+                            )), 0
+                        ) AS delta_seconds
                     FROM sfa_readings
                     WHERE sensor_id = %s
                       AND variable  = 'i_generada'
                       AND timestamp >= NOW() - INTERVAL '%s days'
+                ),
+                gen AS (
+                    SELECT day, SUM(value * delta_seconds / 3600) AS gen_ah
+                    FROM gen_raw
                     GROUP BY day
                 ),
-                load AS (
+                load_raw AS (
                     SELECT
                         DATE(timestamp AT TIME ZONE 'UTC') AS day,
-                        SUM(
-                            value * GREATEST(
-                                EXTRACT(EPOCH FROM (
-                                    timestamp - LAG(timestamp) OVER (
-                                        PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
-                                        ORDER BY timestamp
-                                    )
-                                )), 0
-                            ) / 3600
-                        ) AS load_ah
+                        value,
+                        GREATEST(
+                            EXTRACT(EPOCH FROM (
+                                timestamp - LAG(timestamp) OVER (
+                                    PARTITION BY DATE(timestamp AT TIME ZONE 'UTC')
+                                    ORDER BY timestamp
+                                )
+                            )), 0
+                        ) AS delta_seconds
                     FROM sfa_readings
                     WHERE sensor_id = %s
                       AND variable  = 'i_carga'
                       AND timestamp >= NOW() - INTERVAL '%s days'
+                ),
+                load AS (
+                    SELECT day, SUM(value * delta_seconds / 3600) AS load_ah
+                    FROM load_raw
                     GROUP BY day
                 )
                 SELECT
-                    COALESCE(g.day, l.day)   AS day,
-                    COALESCE(g.gen_ah, 0)    AS gen_ah,
-                    COALESCE(l.load_ah, 0)   AS load_ah
+                    COALESCE(g.day, l.day)  AS day,
+                    COALESCE(g.gen_ah, 0)   AS gen_ah,
+                    COALESCE(l.load_ah, 0)  AS load_ah
                 FROM gen g
                 FULL OUTER JOIN load l ON g.day = l.day
                 ORDER BY day ASC
