@@ -245,7 +245,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
           {lastUpdate && (
             <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
               <Clock size={12} />
-              {lastUpdate.toLocaleTimeString('UTC', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {lastUpdate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>
           )}
           <button onClick={() => load(true)} disabled={isRefreshing}
