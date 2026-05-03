@@ -1,14 +1,13 @@
 /**
  * LatestView.jsx
  * --------------
- * Usa WebSocket para datos en tiempo real.
- * Fallback a polling REST si el WS no está disponible.
- * La tendencia se mantiene entre navegaciones con caché de módulo.
+ * Corrección: timestamp de última actualización en UTC.
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import useWebSocket from '../hooks/useWebSocket';
+import { fmtTimeSec } from '../utils/formatTimestamp';
 import {
   Loader2, RefreshCw, TrendingUp, TrendingDown, Minus,
   Sun, Thermometer, Zap, Battery, Cpu, Plug,
@@ -40,12 +39,10 @@ const getThemeClasses = (theme) => {
 
 const TREND_THRESHOLD = 0.05;
 
-// Caché módulo: sobrevive cambios de vista
 const _cache = {};
 const getCache  = (id) => _cache[id] ?? { current: null, previous: null };
 const setCache  = (id, current, previous) => { _cache[id] = { current, previous }; };
 
-// ─── Indicador de tendencia ───────────────────────────────────
 const TrendIndicator = ({ current, previous, unit }) => {
   if (previous == null) {
     return <span className="text-slate-400 text-xs font-medium">Sin datos previos</span>;
@@ -72,7 +69,6 @@ const TrendIndicator = ({ current, previous, unit }) => {
   );
 };
 
-// ─── Componente principal ─────────────────────────────────────
 const LatestView = ({ sensorId = 's1' }) => {
   const [data,         setData]         = useState(() => getCache(sensorId).current);
   const [prev,         setPrev]         = useState(() => getCache(sensorId).previous);
@@ -81,11 +77,9 @@ const LatestView = ({ sensorId = 's1' }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate,   setLastUpdate]   = useState(null);
 
-  // WebSocket en tiempo real
   const { readings: wsReadings, connected: wsConnected, lastUpdate: wsLastUpdate }
     = useWebSocket(sensorId);
 
-  // ── Carga inicial REST (snapshot completo) ────────────────────
   const loadRest = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
     setError(null);
@@ -104,40 +98,29 @@ const LatestView = ({ sensorId = 's1' }) => {
     }
   }, [sensorId]);
 
-  // Carga inicial al montar o cambiar sensor
   useEffect(() => {
     if (!getCache(sensorId).current) setLoading(true);
     loadRest();
   }, [sensorId, loadRest]);
 
-  // ── Actualizar con datos WebSocket ────────────────────────────
-  // Cada vez que llegan lecturas por WS, actualizamos el estado
-  // usando un ref para no perder el "anterior"
   const dataRef = useRef(data);
   useEffect(() => { dataRef.current = data; }, [data]);
 
   useEffect(() => {
     if (!wsConnected || Object.keys(wsReadings).length === 0) return;
-
     setData(prev => {
-      if (!prev) return prev;   // Esperamos snapshot inicial
+      if (!prev) return prev;
       const updated = { ...prev, ...wsReadings };
-      // Solo guardamos el timestamp si llega en el mensaje
       if (wsLastUpdate) updated.timestamp = wsLastUpdate.toISOString();
-
-      // Actualizar caché preservando el "previous" (no cambiar a cada msg WS)
       const cached = getCache(sensorId);
       setCache(sensorId, updated, cached.previous);
-
       return updated;
     });
-
     if (wsLastUpdate) setLastUpdate(wsLastUpdate);
   }, [wsReadings, wsConnected, wsLastUpdate, sensorId]);
 
-  // ── Polling de fallback si WS no está conectado ───────────────
   useEffect(() => {
-    if (wsConnected) return;  // WS activo → no hace falta polling
+    if (wsConnected) return;
     const interval = setInterval(() => loadRest(false), 10_000);
     return () => clearInterval(interval);
   }, [wsConnected, loadRest]);
@@ -172,31 +155,26 @@ const LatestView = ({ sensorId = 's1' }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-
-          {/* Indicador WS */}
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border
             ${wsConnected
               ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-              : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-          >
+              : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
             {wsConnected
               ? <><Wifi size={13} /><span>Tiempo real</span><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /></>
               : <><WifiOff size={13} /><span>Polling 10s</span></>
             }
           </div>
 
+          {/* ✅ CORREGIDO: fmtTimeSec usa timeZone UTC */}
           {lastUpdate && (
             <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
               <Clock size={14} />
-              {lastUpdate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {fmtTimeSec(lastUpdate)} UTC
             </div>
           )}
 
-          <button
-            onClick={() => loadRest(true)}
-            disabled={isRefreshing}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white transition-colors disabled:opacity-50 rounded-xl shadow-sm shadow-indigo-200 flex-1 sm:flex-none justify-center"
-          >
+          <button onClick={() => loadRest(true)} disabled={isRefreshing}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white transition-colors disabled:opacity-50 rounded-xl shadow-sm shadow-indigo-200 flex-1 sm:flex-none justify-center">
             <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
             {isRefreshing ? 'Actualizando' : 'Actualizar'}
           </button>
@@ -230,9 +208,7 @@ const LatestView = ({ sensorId = 's1' }) => {
                 </div>
               </div>
               <div className="px-5 pb-2 flex items-baseline gap-1.5">
-                <span className={`text-3xl font-bold tracking-tight ${v.color}`}>
-                  {current ?? '—'}
-                </span>
+                <span className={`text-3xl font-bold tracking-tight ${v.color}`}>{current ?? '—'}</span>
                 <span className={`text-sm font-medium ${v.color}`}>{v.unit}</span>
               </div>
               <div className="px-5 py-3 mt-auto border-t border-slate-50 bg-slate-50/30">
