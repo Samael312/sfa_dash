@@ -169,7 +169,7 @@ const LatestView = ({ sensorId = 's1' }) => {
           {lastUpdate && (
             <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
               <Clock size={14} />
-              {fmtTimeSec(lastUpdate)} UTC
+              {fmtTimeSec(lastUpdate)} 
             </div>
           )}
 
