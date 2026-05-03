@@ -1,12 +1,10 @@
 /**
  * WeatherView.jsx
  * ---------------
- * Mejoras Fase 3:
- * - I_MAX configurable (igual que coordenadas)
- * - Gráfica eficiencia real vs estimada
- * - Energía acumulada diaria real via /energy/daily
- * - CORRECCIÓN: Bucle infinito resuelto eliminando 'weather' de las dependencias de useCallback.
- * - CORRECCIÓN: Espacios invisibles (non-breaking spaces) limpiados para evitar errores de sintaxis.
+ * Corrección: timestamps de datos del sensor en UTC.
+ * La meteorología de Open-Meteo usa hora local (timezone=auto),
+ * por lo que sus etiquetas NO se tocan — solo los timestamps
+ * que vienen del backend (sensorLatest, energyDaily).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -68,22 +66,16 @@ const CHART_TOOLTIP = {
   usePointStyle:   true,
 };
 
-// ─── Exportar CSV Específico para Balance ──────────────────────
 const exportCSV = (next24, sensorId) => {
   if (!next24 || !next24.time?.length) return;
-  
   const header = 'timestamp,radiacion,temp_amb,i_generada\n';
-  
   const rows = next24.time.map((t, i) => {
     return `${t},${next24.rad[i]},${next24.temp[i]},${next24.gen[i]}`;
   }).join('\n');
-  
   const blob   = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
-  a.href       = url;
-  a.download   = `${sensorId}_previsión_24h.csv`;
-  a.click();
+  a.href = url; a.download = `${sensorId}_previsión_24h.csv`; a.click();
   URL.revokeObjectURL(url);
 };
 
@@ -92,37 +84,33 @@ const WeatherView = ({ sensorId = 's1' }) => {
 
   const [lat, setLat] = useState(() => parseFloat(localStorage.getItem('solar_lat') || '37.40'));
   const [lon, setLon] = useState(() => parseFloat(localStorage.getItem('solar_lon') || '-4.48'));
-
   const [iMax, setIMax] = useState(() =>
     parseFloat(localStorage.getItem('solar_imax') || String(DEFAULT_I_MAX))
   );
 
   const chartRef = useRef(null);
 
-  // Edición
-  const [editing, setEditing]     = useState(false);
-  const [tempLat, setTempLat]     = useState(lat);
-  const [tempLon, setTempLon]     = useState(lon);
-  const [tempIMax, setTempIMax]   = useState(iMax);
+  const [editing, setEditing]   = useState(false);
+  const [tempLat, setTempLat]   = useState(lat);
+  const [tempLon, setTempLon]   = useState(lon);
+  const [tempIMax, setTempIMax] = useState(iMax);
 
-  // Datos meteorológicos
   const [weather,      setWeather]      = useState(null);
   const [loadingW,     setLoadingW]     = useState(true);
   const [errorW,       setErrorW]       = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Datos del sensor
   const [sensorLatest, setSensorLatest] = useState(null);
   const [energyDaily,  setEnergyDaily]  = useState([]);
 
-  // Modo gráfica 24h
   const [chart24Mode, setChart24Mode] = useState('radiation');
 
-  // ── Fetch meteorología ──────────────────────────────────────
+  // Open-Meteo usa timezone=auto (hora local del lugar).
+  // Sus etiquetas de tiempo están ya en la zona correcta,
+  // NO aplicamos conversión UTC aquí.
   const fetchWeather = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
     else setLoadingW(true);
-    
     setErrorW(null);
     try {
       const res  = await fetch(OPEN_METEO_URL(lat, lon));
@@ -177,17 +165,15 @@ const WeatherView = ({ sensorId = 's1' }) => {
       setLoadingW(false);
       setIsRefreshing(false);
     }
-  }, [lat, lon, iMax]); // <-- CORRECCIÓN: Eliminado 'weather' de las dependencias para evitar el bucle infinito
+  }, [lat, lon, iMax]);
 
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
-  // ── Fetch sensor + energía ──────────────────────────────────
   useEffect(() => {
     api.getSFALatest(sensorId).then(setSensorLatest).catch(() => {});
     api.getEnergyDaily(sensorId, 7).then(res => setEnergyDaily(res?.data ?? [])).catch(() => {});
   }, [sensorId]);
 
-  // ── Guardar configuración ───────────────────────────────────
   const handleSave = () => {
     const la = parseFloat(tempLat);
     const lo = parseFloat(tempLon);
@@ -214,103 +200,60 @@ const WeatherView = ({ sensorId = 's1' }) => {
     return scales[mode] ?? scales.radiation;
   };
 
-  // ── Construcción gráfica 24h ────────────────────────────────
   const build24hChart = () => {
     if (!weather) return null;
     const { next24 } = weather;
+    // Open-Meteo devuelve labels en hora local del lugar (timezone=auto) — correcto, no se toca
     const labels = next24.time.map(t => t.slice(11, 16));
 
     const datasets = {
       radiation: [{
-        label:            'Rad. Prevista (W/m²)',
-        data:             next24.rad,
-        borderColor:      '#f97316',
-        backgroundColor:  'rgba(249,115,22,0.08)',
-        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
+        label: 'Rad. Prevista (W/m²)', data: next24.rad,
+        borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.08)',
+        borderWidth: 3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
       temperature: [{
-        label:            'Temp. Prevista (°C)',
-        data:             next24.temp,
-        borderColor:      '#f43f5e',
-        backgroundColor:  'rgba(244,63,94,0.08)',
-        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
+        label: 'Temp. Prevista (°C)', data: next24.temp,
+        borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.08)',
+        borderWidth: 3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
       generation: [{
-        label:            `Gen. Estimada (A) · I_MAX=${iMax}A`,
-        data:             next24.gen,
-        borderColor:      '#10b981',
-        backgroundColor:  'rgba(16,185,129,0.08)',
-        borderWidth:      3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
+        label: `Gen. Estimada (A) · I_MAX=${iMax}A`, data: next24.gen,
+        borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)',
+        borderWidth: 3, pointRadius: 0, pointHoverRadius: 6, tension: 0.4, fill: true,
       }],
     };
 
     return { labels, datasets: datasets[chart24Mode] };
   };
 
-  // ── Gráfica eficiencia real vs estimada ─────────────────────
   const buildEfficiencyChart = () => {
     if (!weather || !sensorLatest) return null;
-
-    const estNow  = weather.currentGen;
-    const realNow = sensorLatest.i_generada ?? null;
-
     return {
       labels: ['Ahora'],
       datasets: [
-        {
-          label:           'Estimada (A)',
-          data:            [estNow],
-          backgroundColor: 'rgba(16,185,129,0.7)',
-          borderColor:     '#10b981',
-          borderWidth:     2,
-          borderRadius:    8,
-        },
-        {
-          label:           'Real sensor (A)',
-          data:            [realNow],
-          backgroundColor: 'rgba(99,102,241,0.7)',
-          borderColor:     '#6366F1',
-          borderWidth:     2,
-          borderRadius:    8,
-        },
+        { label: 'Estimada (A)', data: [weather.currentGen], backgroundColor: 'rgba(16,185,129,0.7)', borderColor: '#10b981', borderWidth: 2, borderRadius: 8 },
+        { label: 'Real sensor (A)', data: [sensorLatest.i_generada ?? null], backgroundColor: 'rgba(99,102,241,0.7)', borderColor: '#6366F1', borderWidth: 2, borderRadius: 8 },
       ],
     };
   };
 
-  // ── Gráfica energía diaria real vs estimada ─────────────────
   const buildEnergyChart = () => {
     if (!energyDaily.length && !weather) return null;
-
     const days   = weather?.days.slice(0, 7) ?? [];
     const labels = days.map((d, i) => i === 0 ? 'Hoy' : d.label);
-
     const estData = days.map(d => d.estGenAh);
     const realMap = {};
     energyDaily.forEach(e => { realMap[e.day] = e.gen_ah; });
     const realData = days.map(d => realMap[d.date] ?? null);
-
     return {
       labels,
       datasets: [
-        {
-          label:           'Estimada (Ah)',
-          data:            estData,
-          backgroundColor: 'rgba(16,185,129,0.6)',
-          borderColor:     '#10b981',
-          borderWidth:     2,
-          borderRadius:    6,
-        },
-        {
-          label:           'Real sensor (Ah)',
-          data:            realData,
-          backgroundColor: 'rgba(99,102,241,0.6)',
-          borderColor:     '#6366F1',
-          borderWidth:     2,
-          borderRadius:    6,
-        },
+        { label: 'Estimada (Ah)', data: estData, backgroundColor: 'rgba(16,185,129,0.6)', borderColor: '#10b981', borderWidth: 2, borderRadius: 6 },
+        { label: 'Real sensor (Ah)', data: realData, backgroundColor: 'rgba(99,102,241,0.6)', borderColor: '#6366F1', borderWidth: 2, borderRadius: 6 },
       ],
     };
-  }; 
+  };
 
   const chartOptions = {
     responsive: true,
@@ -324,25 +267,17 @@ const WeatherView = ({ sensorId = 's1' }) => {
       }
     },
     scales: {
-      x: {
-        grid: { display: false },
-        ticks: { font: { size: 12 }, color: '#64748b' },
-        border: { display: false }
-      },
+      x: { grid: { display: false }, ticks: { font: { size: 12 }, color: '#64748b' }, border: { display: false } },
       y: {
         min: getYScales(chart24Mode).min,
         max: getYScales(chart24Mode).max,
         grid: { color: '#f1f5f9', borderDash: [5, 5] },
-        ticks: {
-          font: { size: 12 },
-          color: '#64748b',
-          callback: getYScales(chart24Mode).callback,
-        },
+        ticks: { font: { size: 12 }, color: '#64748b', callback: getYScales(chart24Mode).callback },
         border: { display: false }
       },
     },
   };
- 
+
   const barOptions = {
     ...chartOptions,
     plugins: {
@@ -356,8 +291,8 @@ const WeatherView = ({ sensorId = 's1' }) => {
     scales: {
       ...chartOptions.scales,
       y: {
-        grid:   { color: '#f1f5f9', borderDash: [5, 5] },
-        ticks:  { font: { size: 12 }, color: '#64748b', callback: v => `${v}Ah` },
+        grid: { color: '#f1f5f9', borderDash: [5, 5] },
+        ticks: { font: { size: 12 }, color: '#64748b', callback: v => `${v}Ah` },
         border: { display: false },
       }
     }
@@ -412,41 +347,27 @@ const WeatherView = ({ sensorId = 's1' }) => {
                 </span>
                 <span className="text-slate-300">|</span>
                 <span>I_MAX:</span>
-                <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                  {iMax} A
-                </span>
-                <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded hidden sm:inline">
-                  Panel 10W · Isc=0.8A
-                </span>
+                <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">{iMax} A</span>
               </div>
             </div>
           </div>
-          
-          {/* Botones de acción de la cabecera */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => fetchWeather(true)}
+            <button onClick={() => fetchWeather(true)}
               className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
-              title="Actualizar datos"
-            >
+              title="Actualizar datos">
               <RefreshCw size={20} className={isRefreshing ? 'animate-spin' : ''} />
             </button>
-            <button
-              onClick={() => setEditing(!editing)}
+            <button onClick={() => setEditing(!editing)}
               className={`p-2.5 rounded-xl transition-colors ${editing ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
-              title="Configuración de instalación"
-            >
+              title="Configuración">
               <Settings2 size={20} />
             </button>
           </div>
         </div>
 
-        {/* Panel de Configuración Oculto */}
         {editing && (
           <div className="bg-white border border-slate-100 shadow-sm p-6 rounded-2xl">
-            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">
-              Configuración de la instalación
-            </h3>
+            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">Configuración de la instalación</h3>
             <div className="mb-5 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
               <strong>Hardware:</strong> Panel policristalino 10W 12V (Voc=18V, Isc=0.8A) ·
               Controlador STECA 10A · Batería 12V 7.2Ah · ACS730 ±5A
@@ -454,29 +375,21 @@ const WeatherView = ({ sensorId = 's1' }) => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Latitud</label>
-                <input type="number" step="0.0001" value={tempLat}
-                  onChange={e => setTempLat(e.target.value)}
+                <input type="number" step="0.0001" value={tempLat} onChange={e => setTempLat(e.target.value)}
                   className="border border-slate-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Longitud</label>
-                <input type="number" step="0.0001" value={tempLon}
-                  onChange={e => setTempLon(e.target.value)}
+                <input type="number" step="0.0001" value={tempLon} onChange={e => setTempLon(e.target.value)}
                   className="border border-slate-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 rounded-xl bg-slate-50/50" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                  Corriente máx. panel (A)
-                </label>
-                <input type="number" step="0.01" min="0.01" value={tempIMax}
-                  onChange={e => setTempIMax(e.target.value)}
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Corriente máx. panel (A)</label>
+                <input type="number" step="0.01" min="0.01" value={tempIMax} onChange={e => setTempIMax(e.target.value)}
                   className="border border-slate-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 rounded-xl bg-slate-50/50" />
-                <p className="text-[11px] text-slate-400">
-                  Isc a 1000 W/m² — panel 10W = 0.8A
-                </p>
+                <p className="text-[11px] text-slate-400">Isc a 1000 W/m² — panel 10W = 0.8A</p>
               </div>
             </div>
-            
             <div className="flex justify-end items-center gap-3 mt-6 pt-5 border-t border-slate-100">
               <button onClick={handleCancel} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
                 <X size={16} /> Cancelar
@@ -488,7 +401,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
           </div>
         )}
       </div>
- 
+
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
@@ -530,16 +443,14 @@ const WeatherView = ({ sensorId = 's1' }) => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">{kpi.extra.label}:</span>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${kpi.extra.cls}`}>
-                  {kpi.extra.value}
-                </span>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${kpi.extra.cls}`}>{kpi.extra.value}</span>
               </div>
             </div>
           </div>
         ))}
       </div>
- 
-      {/* GRÁFICA 24H con eje Y fijo */}
+
+      {/* GRÁFICA 24H */}
       <div className="group bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -547,7 +458,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
           </h3>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded hidden sm:inline">
-              {chart24Mode === 'radiation' ? '0–1000 W/m²' : chart24Mode === 'temperature' ? '10–60°C' : `0–1A`}
+              {chart24Mode === 'radiation' ? '0–1000 W/m²' : chart24Mode === 'temperature' ? '10–60°C' : '0–1A'}
             </span>
             <div className="flex p-1 bg-slate-100 rounded-xl">
               {[
@@ -568,72 +479,47 @@ const WeatherView = ({ sensorId = 's1' }) => {
         </div>
         <div className="p-6 h-[340px] w-full relative">
           <div className="absolute top-4 right-8 flex items-center gap-2 z-10">
-            <button
-              onClick={() => chartRef.current?.resetZoom()}
+            <button onClick={() => chartRef.current?.resetZoom()}
               className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="Restablecer zoom"
-            >
+              title="Restablecer zoom">
               <ZoomOut size={16} />
             </button>
-            <button
-              onClick={() => exportCSV(weather.next24, sensorId)}
+            <button onClick={() => exportCSV(weather.next24, sensorId)}
               className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="Exportar CSV"
-            >
+              title="Exportar CSV">
               <Download size={16} />
             </button>
           </div>
-          {chart24 && (
-            <Line
-              ref={chartRef}
-              data={chart24}
-              options={chartOptions}
-            />
-          )}
+          {chart24 && <Line ref={chartRef} data={chart24} options={chartOptions} />}
         </div>
       </div>
- 
-      {/* GRÁFICAS SECUNDARIAS (Energía y Eficiencia) */}
+
+      {/* GRÁFICAS SECUNDARIAS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* GRÁFICA ENERGÍA DIARIA */}
         {energyChart && (
           <div className="lg:col-span-2 bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden h-full">
             <div className="px-6 py-5 border-b border-slate-100">
               <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <Zap size={22} className="text-emerald-400" />
-                Energía diaria: Real vs Estimada (Ah)
+                <Zap size={22} className="text-emerald-400" /> Energía diaria: Real vs Estimada (Ah)
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Basado en datos reales del sensor e I_MAX = {iMax} A (panel 10W)
-              </p>
+              <p className="text-xs text-slate-400 mt-1">Basado en datos reales del sensor e I_MAX = {iMax} A</p>
             </div>
-            <div className="p-6 h-[280px]">
-              <Bar data={energyChart} options={barOptions} />
-            </div>
+            <div className="p-6 h-[280px]"><Bar data={energyChart} options={barOptions} /></div>
           </div>
         )}
-
-        {/* GRÁFICA EFICIENCIA INSTANTÁNEA */}
         {effChart && (
           <div className="lg:col-span-1 bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden h-full">
             <div className="px-6 py-5 border-b border-slate-100">
               <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <TrendingUp size={22} className="text-indigo-400" />
-                Eficiencia Instantánea
+                <TrendingUp size={22} className="text-indigo-400" /> Eficiencia Instantánea
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Lectura del sensor actual (A)
-              </p>
+              <p className="text-xs text-slate-400 mt-1">Lectura del sensor actual (A)</p>
             </div>
-            <div className="p-6 h-[280px]">
-              <Bar data={effChart} options={barOptions} />
-            </div>
+            <div className="p-6 h-[280px]"><Bar data={effChart} options={barOptions} /></div>
           </div>
         )}
-
       </div>
- 
+
       {/* 7 DÍAS */}
       <div className="bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100">
@@ -650,7 +536,7 @@ const WeatherView = ({ sensorId = 's1' }) => {
                   {i === 0 ? 'Hoy' : day.label}
                 </span>
                 <span className="text-xs text-slate-400 font-medium">
-                  {new Date(day.date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
+                  {new Date(day.date + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
                 </span>
               </div>
               <div className="flex justify-center my-4">
@@ -682,9 +568,9 @@ const WeatherView = ({ sensorId = 's1' }) => {
           ))}
         </div>
       </div>
-      
+
     </div>
   );
 };
- 
+
 export default WeatherView;

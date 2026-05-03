@@ -1,13 +1,13 @@
 /**
  * OverviewView.jsx
  * ----------------
- * Panel resumen ejecutivo.
- * SOC obtenido de /soc/current (motor Coulomb) en lugar de fórmula de voltaje.
+ * Corrección: timestamp de última actualización en UTC.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../services/api';
 import useWebSocket from '../hooks/useWebSocket';
+import { fmtTimeSec } from '../utils/formatTimestamp';
 import {
   Loader2, RefreshCw, Wifi, WifiOff, AlertTriangle,
   ShieldCheck, Zap, Battery, Sun, Thermometer, Cpu,
@@ -34,7 +34,6 @@ const VARIABLES = [
 
 const TREND_THRESHOLD = 0.05;
 
-// ── Sparkline ─────────────────────────────────────────────────
 const Sparkline = ({ points, color }) => {
   if (!points?.length) return <div className="h-10 flex items-center justify-center text-slate-200 text-xs">—</div>;
   const data = {
@@ -49,7 +48,6 @@ const Sparkline = ({ points, color }) => {
   return <div className="h-10 w-full"><Line data={data} options={options} /></div>;
 };
 
-// ── Tendencia compacta ────────────────────────────────────────
 const MiniTrend = ({ current, previous }) => {
   if (previous == null || current == null) return null;
   const delta = current - previous;
@@ -68,7 +66,6 @@ const formatAge = (seconds) => {
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 };
 
-// ── Badge conectividad ────────────────────────────────────────
 const ConnectivityBadge = ({ sensor }) => (
   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border
     ${sensor.connected ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
@@ -78,7 +75,6 @@ const ConnectivityBadge = ({ sensor }) => (
   </div>
 );
 
-// ── KPI card ──────────────────────────────────────────────────
 const OverviewCard = ({ variable, current, previous, sparkPoints }) => {
   const Icon = variable.icon;
   return (
@@ -101,7 +97,6 @@ const OverviewCard = ({ variable, current, previous, sparkPoints }) => {
   );
 };
 
-// ── Componente principal ──────────────────────────────────────
 const OverviewView = ({ sensorId = 's1' }) => {
   const [snapshots,     setSnapshots]     = useState({});
   const [sparklines,    setSparklines]    = useState({});
@@ -109,7 +104,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
   const [allSensors,    setAllSensors]    = useState([]);
   const [alerts,        setAlerts]        = useState([]);
   const [energySummary, setEnergySummary] = useState(null);
-  // ── NUEVO: SOC desde el motor Coulomb ────────────────────────
   const [socData,       setSocData]       = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [isRefreshing,  setIsRefreshing]  = useState(false);
@@ -133,7 +127,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
         Promise.all(VARIABLES.map(v => api.getSFAHistory(sensorId, v.key, 3).catch(() => null))),
         api.getSFAStatus(sensorId).catch(() => null),
         api.getEnergyDaily(sensorId, 1).catch(() => null),
-        // ── NUEVO: obtener SOC real del motor Coulomb ────────────
         api.getSocCurrent(sensorId).catch(() => null),
       ]);
 
@@ -150,7 +143,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
       setConnectivity(connRes?.sensors ?? []);
       setAlerts(statusRes?.alerts ?? []);
       setEnergySummary(energyRes?.data?.at(-1) ?? null);
-      // ── NUEVO ────────────────────────────────────────────────
       setSocData(socRes);
       setLastUpdate(new Date());
     } catch {
@@ -163,14 +155,12 @@ const OverviewView = ({ sensorId = 's1' }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Polling fallback si no hay WS
   useEffect(() => {
     if (wsConnected) return;
     const iv = setInterval(() => load(false), 15_000);
     return () => clearInterval(iv);
   }, [wsConnected, load]);
 
-  // Actualizar snapshot con datos WS
   useEffect(() => {
     if (!wsConnected || !Object.keys(wsReadings).length) return;
     setSnapshots(prev => ({ ...prev, [sensorId]: { ...(prev[sensorId] ?? {}), ...wsReadings } }));
@@ -191,7 +181,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
     if (current) prevRef.current[sensorId] = current;
   }, [current, sensorId]);
 
-  // ── SOC: prioridad al motor Coulomb, fallback a voltaje ──────
   const soc = (() => {
     if (socData?.soc_pct != null) return Math.round(socData.soc_pct);
     if (current?.v_bateria != null) {
@@ -201,7 +190,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
     return null;
   })();
 
-  // Etiqueta del método SOC para transparencia
   const socMethod = socData?.method === 'ocv_calibration' ? 'OCV'
     : socData?.method === 'coulomb_counting'               ? 'Coulomb'
     : socData?.soc_pct != null                             ? 'Motor'
@@ -242,10 +230,11 @@ const OverviewView = ({ sensorId = 's1' }) => {
               ? <><Wifi size={12} />Tiempo real<span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /></>
               : <><WifiOff size={12} />Polling</>}
           </div>
+          {/* ✅ CORREGIDO: fmtTimeSec usa timeZone UTC */}
           {lastUpdate && (
             <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
               <Clock size={12} />
-              {lastUpdate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {fmtTimeSec(lastUpdate)} UTC
             </div>
           )}
           <button onClick={() => load(true)} disabled={isRefreshing}
@@ -304,13 +293,10 @@ const OverviewView = ({ sensorId = 's1' }) => {
 
       {/* BATERÍA + ENERGÍA HOY */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-
-        {/* SOC — ahora con método visible */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Estado de carga (SOC)</p>
             <div className="flex items-center gap-2">
-              {/* Badge del método de cálculo */}
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border
                 ${socMethod === 'OCV'     ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 : socMethod === 'Coulomb' ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -332,16 +318,12 @@ const OverviewView = ({ sensorId = 's1' }) => {
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
             <Battery size={13} />
             <span>Tensión: <strong className="text-slate-700">{current?.v_bateria ?? '—'} V</strong></span>
-            {/* Horas desde calibración si disponible */}
             {socData?.hours_since_calib != null && (
-              <span className="ml-auto text-[10px] text-slate-300">
-                cal. hace {socData.hours_since_calib}h
-              </span>
+              <span className="ml-auto text-[10px] text-slate-300">cal. hace {socData.hours_since_calib}h</span>
             )}
           </div>
         </div>
 
-        {/* Energía hoy */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Energía hoy</p>
           <div className="grid grid-cols-3 gap-3 text-center">

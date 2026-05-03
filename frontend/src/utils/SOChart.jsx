@@ -1,12 +1,8 @@
 /**
- * SOChart.jsx  (v2.1 — tolerante a fallos)
+ * SOChart.jsx  (v2.2 — UTC timestamps)
  * -----------------------------------------
- * Cada endpoint falla de forma independiente:
- *   GET /sfa/history        → historial v_bateria (siempre existente)
- *   GET /sfa/soc/current    → SOC del backend     (puede no estar aún)
- *
- * Si /soc/current no está desplegado aún, el gráfico de tensión
- * sigue funcionando y muestra un aviso amarillo en su lugar.
+ * Corrección: timestamps del eje X en UTC para evitar
+ * desfase de +2h por conversión a hora local del navegador.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -19,6 +15,7 @@ import {
 } from 'chart.js';
 import { Loader2, ZoomOut, Download, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
+import { fmtAxis } from '../utils/formatTimestamp';
 import zoomPlugin from 'chartjs-plugin-zoom';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
@@ -63,7 +60,6 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     setVoltError(null);
     setSocError(null);
 
-    // Promise.allSettled: cada endpoint falla de forma independiente
     const [voltResult, socResult] = await Promise.allSettled([
       api.getSFAHistory(sensorId, 'v_bateria', hours),
       api.getSocCurrent(sensorId),
@@ -128,7 +124,6 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     </div>
   );
 
-  // Error total solo si historial también falla
   if (voltError && !voltagePoints.length) return (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-rose-100 flex flex-col gap-3">
       <p className="text-rose-600 text-sm flex items-center gap-2 font-medium">
@@ -142,12 +137,8 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     </div>
   );
 
-  const labels     = voltagePoints.map(p => {
-    const d = new Date(p.timestamp);
-    return hours > 24
-      ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-      : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-  });
+  // ✅ CORREGIDO: fmtAxis usa timeZone UTC
+  const labels     = voltagePoints.map(p => fmtAxis(p.timestamp, hours));
   const voltages   = voltagePoints.map(p => p.value);
   const currentSOC = socState?.soc_pct ?? null;
   const ahRemaining = currentSOC != null ? ((currentSOC / 100) * 7.2).toFixed(2) : null;
@@ -173,7 +164,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: false },
-      zoom:   { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } },
+      zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } },
       tooltip: {
         backgroundColor: 'rgba(255,255,255,0.95)',
         titleColor: '#1f2937', bodyColor: '#1f2937', borderColor: '#e5e7eb', borderWidth: 1, padding: 10,
@@ -194,7 +185,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] flex-shrink-0" />
           <span className="font-bold text-slate-800 text-sm">{title}</span>
-          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded uppercase">Últimas {hours}h</span>
+          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded uppercase">Últimas {hours}h · UTC</span>
           <MethodBadge method={socState?.method} hoursSince={socState?.hours_since_calib} />
         </div>
         <div className="flex items-center gap-1">
@@ -216,7 +207,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         </div>
       </div>
 
-      {/* Aviso si /soc/current falla — no bloquea el gráfico */}
+      {/* Aviso si /soc/current falla */}
       {socError && (
         <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
           <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
@@ -228,7 +219,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         </div>
       )}
 
-      {/* SOC + barra — solo si tenemos el dato */}
+      {/* SOC + barra */}
       {currentSOC != null && (
         <div className="flex items-center gap-5">
           <div className="flex flex-col items-center min-w-[4.5rem]">
@@ -270,17 +261,20 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         </div>
       )}
 
-      {/* Panel OCV — solo si el endpoint está disponible */}
+      {/* Panel OCV */}
       {!socError && (
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="text-xs text-slate-500 flex-1">
             <p className="font-bold text-slate-700 mb-0.5">Calibración OCV automática</p>
-            <p>Activa ~04:00 AM si i_gen &lt; 0.1A e i_carga &lt; 0.1A durante &ge;30 min (batería en reposo).</p>
+            <p>Activa ~04:00 AM UTC si i_gen &lt; 0.1A e i_carga &lt; 0.1A durante &ge;30 min.</p>
             {socState?.last_calibrated && (
               <p className="mt-1 text-slate-400">
                 Última:{' '}
                 <strong className="text-slate-600">
-                  {new Date(socState.last_calibrated).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(socState.last_calibrated).toLocaleString('es-ES', {
+                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                    timeZone: 'UTC'
+                  })}
                 </strong>
                 {socState.calibration_soc != null && ` → ${socState.calibration_soc}%`}
               </p>
@@ -293,7 +287,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         </div>
       )}
 
-      {/* Gráfica tensión — siempre visible si hay datos */}
+      {/* Gráfica tensión */}
       <div className="h-44 w-full">
         {voltagePoints.length > 0 ? (
           <Line ref={chartRef} data={chartData} options={options} />

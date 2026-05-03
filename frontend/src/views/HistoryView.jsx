@@ -1,13 +1,8 @@
 /**
  * HistoryView.jsx
  * ---------------
- * Mejoras Fase 3:
- * - Downsampling automático via endpoint /history/aggregated
- * - Estadísticas por variable (min/max/media/stddev)
- * - Exportar CSV
- * - Comparación multi-sensor en la misma gráfica
- * - Búsqueda automática de datos (Fallback si hay 502 o no hay datos)
- * - Zoom y Paneo interactivo en gráficas
+ * Corrección: timestamps en UTC (timeZone: 'UTC') para evitar
+ * desfase de +2h por conversión a hora local del navegador.
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
@@ -19,16 +14,15 @@ import {
 import { Line } from 'react-chartjs-2';
 import SelectDash from '../utils/SelectDash';
 import SOCChart from '../utils/SOChart';
+import { fmtAxis } from '../utils/formatTimestamp';
 import {
   Chart as ChartJS, CategoryScale, LinearScale,
   PointElement, LineElement, Tooltip, Legend, Filler
 } from 'chart.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
 
-// Registrar el plugin de zoom
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
-// ── Variables con rangos fijos de eje Y ───────────────────────
 const VARIABLES = [
   { key: 'radiacion',  label: 'Radiación solar', unit: 'W/m²', color: '#F59E0B', tcolor: 'text-amber-500',   yMin: 0,  yMax: 1000 },
   { key: 'temp_amb',   label: 'Temp. ambiente',  unit: '°C',   color: '#F43F5E', tcolor: 'text-rose-500',    yMin: 10, yMax: 60   },
@@ -56,14 +50,13 @@ const COMPARE_COLORS = [
   '#0EA5E9', '#84CC16', '#EAB308',
 ];
 
-// ─── Tarjeta de estadísticas ──────────────────────────────────
 const StatsCard = ({ stats, unit, color }) => {
   if (!stats) return null;
   const items = [
     { label: 'Mín',    value: stats.min,    icon: '↓' },
     { label: 'Máx',    value: stats.max,    icon: '↑' },
     { label: 'Media',  value: stats.avg,    icon: '∅' },
-    { label: 'σ Desv. Est.',      value: stats.stddev, icon: '±' },
+    { label: 'σ Desv. Est.', value: stats.stddev, icon: '±' },
   ];
   return (
     <div className="grid grid-cols-4 gap-2 mt-3">
@@ -81,7 +74,6 @@ const StatsCard = ({ stats, unit, color }) => {
   );
 };
 
-// ─── Exportar CSV ─────────────────────────────────────────────
 const exportCSV = (variable, points, sensorId, hours) => {
   if (!points?.length) return;
   const header = 'timestamp,value\n';
@@ -95,25 +87,19 @@ const exportCSV = (variable, points, sensorId, hours) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Selector de sensores para comparación ───────────────────
 const SensorCompareSelector = ({ allSensors, primaryId, compareIds, onChange }) => {
   const available = allSensors.filter(s => s !== primaryId);
   if (!available.length) return null;
-
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-        Comparar con:
-      </span>
+      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Comparar con:</span>
       {available.map(sid => {
         const active = compareIds.includes(sid);
         return (
-          <button
-            key={sid}
-            onClick={() => {
-              if (active) onChange(compareIds.filter(s => s !== sid));
-              else        onChange([...compareIds, sid]);
-            }}
+          <button key={sid} onClick={() => {
+            if (active) onChange(compareIds.filter(s => s !== sid));
+            else        onChange([...compareIds, sid]);
+          }}
             className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all
               ${active
                 ? 'bg-indigo-600 border-indigo-600 text-white'
@@ -128,7 +114,6 @@ const SensorCompareSelector = ({ allSensors, primaryId, compareIds, onChange }) 
   );
 };
 
-// ─── Componente principal ─────────────────────────────────────
 const HistoryView = ({ sensorId = 's1' }) => {
   const [history,      setHistory]      = useState({});
   const [allSensors,   setAllSensors]   = useState([]);
@@ -140,17 +125,15 @@ const HistoryView = ({ sensorId = 's1' }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showStats,    setShowStats]    = useState(true);
 
-  const autoSearchRef = useRef(true); 
+  const autoSearchRef = useRef(true);
   const chartRefs     = useRef({});
 
-  // Cargar lista de sensores
   useEffect(() => {
     api.getSensors()
       .then(res => setAllSensors(res?.sensors ?? []))
       .catch(() => {});
   }, []);
 
-  // Carga principal
   const load = useCallback(async (manual = false) => {
     if (manual) {
       setIsRefreshing(true);
@@ -168,14 +151,12 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
       const hasData = histResults.some(res => res && res.points && res.points.length > 0);
 
-      // ✅ CORRECCIÓN 1: Buscar hacia ADELANTE en el tiempo (ampliar la red)
       if (!hasData && autoSearchRef.current) {
         const currentIndex = TIME_FILTERS.findIndex(f => f.val === hours);
         if (currentIndex >= 0 && currentIndex < TIME_FILTERS.length - 1) {
-          const nextHours = TIME_FILTERS[currentIndex + 1].val; // Cambiado de -1 a +1
-          console.log(`[Auto-Búsqueda] Sin datos en ${hours}h. Buscando en ${nextHours}h...`);
+          const nextHours = TIME_FILTERS[currentIndex + 1].val;
           setHours(nextHours);
-          return; 
+          return;
         } else {
           autoSearchRef.current = false;
         }
@@ -201,25 +182,20 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Carga multi-sensor
   useEffect(() => {
     if (!compareIds.length) { setMultiData({}); return; }
     const allIds = [sensorId, ...compareIds];
-
     Promise.all(
       VARIABLES.map(v =>
         api.getMultiSensorHistory(allIds, v.key, hours).catch(() => null)
       )
     ).then(results => {
       const map = {};
-      VARIABLES.forEach((v, i) => {
-        if (results[i]) map[v.key] = results[i];
-      });
+      VARIABLES.forEach((v, i) => { if (results[i]) map[v.key] = results[i]; });
       setMultiData(map);
     });
   }, [compareIds, sensorId, hours]);
 
-  // ✅ CORRECCIÓN 2: getBaseOptions ahora acepta la variable 'v' como argumento
   const getBaseOptions = useCallback((v) => ({
     responsive: true,
     maintainAspectRatio: false,
@@ -228,25 +204,16 @@ const HistoryView = ({ sensorId = 's1' }) => {
       legend: { display: compareIds.length > 0, position: 'top' },
       zoom: {
         pan: { enabled: true, mode: 'x' },
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x',
-        }
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
       },
       tooltip: {
         backgroundColor: 'rgba(255,255,255,0.97)',
-        titleColor:      '#64748B',
-        bodyColor:       '#0F172A',
-        borderColor:     '#E2E8F0',
-        borderWidth:     1,
-        titleFont:       { size: 12, family: 'inherit' },
-        bodyFont:        { size: 13, weight: 'bold', family: 'inherit' },
-        padding:         12,
-        cornerRadius:    12,
-        displayColors:   true,
-        boxPadding:      6,
-        usePointStyle:   true,
+        titleColor: '#64748B', bodyColor: '#0F172A',
+        borderColor: '#E2E8F0', borderWidth: 1,
+        titleFont: { size: 12, family: 'inherit' },
+        bodyFont: { size: 13, weight: 'bold', family: 'inherit' },
+        padding: 12, cornerRadius: 12, displayColors: true,
+        boxPadding: 6, usePointStyle: true,
       },
     },
     scales: {
@@ -256,7 +223,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
         border: { display: false },
       },
       y: {
-        min: v.yMin, // Ahora no lanzará ReferenceError
+        min: v.yMin,
         max: v.yMax,
         ticks:  { maxTicksLimit: 5, font: { size: 11 }, color: '#94A3B8' },
         grid:   { color: '#F1F5F9', borderDash: [4, 4] },
@@ -271,51 +238,34 @@ const HistoryView = ({ sensorId = 's1' }) => {
     if (isMulti) {
       const series = multiData[v.key]?.series ?? [];
       return {
-        labels: series[0]?.points.map(p => {
-          const d = new Date(p.timestamp);
-          return hours > 24
-            ? d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-            : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        }) ?? [],
+        // ✅ CORREGIDO: usar fmtAxis con timeZone UTC
+        labels: series[0]?.points.map(p => fmtAxis(p.timestamp, hours)) ?? [],
         datasets: series.map((s, idx) => ({
           label:            s.sensor_id,
           data:             s.points.map(p => p.value),
           borderColor:      idx === 0 ? v.color : COMPARE_COLORS[idx - 1] ?? COMPARE_COLORS[0],
           backgroundColor:  `${idx === 0 ? v.color : COMPARE_COLORS[idx - 1]}18`,
-          borderWidth:      2.5,
-          pointRadius:      0,
-          pointHoverRadius: 6,
-          tension:          0.4,
-          fill:             idx === 0,
-          spanGaps:         true,
+          borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 6,
+          tension: 0.4, fill: idx === 0, spanGaps: true,
         })),
       };
     }
 
     const points = history[v.key]?.points ?? [];
     return {
-      labels: points.map(p => {
-        const d = new Date(p.timestamp);
-        return hours > 24
-          ? d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-          : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-      }),
+      // ✅ CORREGIDO: usar fmtAxis con timeZone UTC
+      labels: points.map(p => fmtAxis(p.timestamp, hours)),
       datasets: [{
         label:            v.label,
         data:             points.map(p => p.value),
         borderColor:      v.color,
         backgroundColor:  `${v.color}15`,
-        borderWidth:      2.5,
-        pointRadius:      0,
-        pointHoverRadius: 6,
-        tension:          0.4,
-        fill:             true,
-        spanGaps:         true,
+        borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 6,
+        tension: 0.4, fill: true, spanGaps: true,
       }],
     };
   }, [history, multiData, compareIds, hours]);
 
-  // ✅ CORRECCIÓN 3: Actualizadas las dependencias del useMemo
   const chartSections = useMemo(() => VARIABLES.map(v => ({
     id:          v.key,
     title:       v.label,
@@ -330,8 +280,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all flex flex-col group">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
-              <span className="w-3 h-3 rounded-full shadow-sm flex-shrink-0"
-                style={{ backgroundColor: v.color }} />
+              <span className="w-3 h-3 rounded-full shadow-sm flex-shrink-0" style={{ backgroundColor: v.color }} />
               <span className="font-bold" style={{ color: v.color }}>{v.label}</span>
               {interval && interval !== 'raw' && (
                 <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
@@ -343,28 +292,20 @@ const HistoryView = ({ sensorId = 's1' }) => {
               <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg uppercase tracking-wider mr-2">
                 {v.yMin}-{v.yMax} {v.unit}
               </span>
-              
-              <button
-                onClick={() => chartRefs.current[v.key]?.resetZoom()}
+              <button onClick={() => chartRefs.current[v.key]?.resetZoom()}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                title="Restablecer vista / zoom"
-              >
+                title="Restablecer vista / zoom">
                 <ZoomOut size={16} />
               </button>
-
-              <button
-                onClick={() => exportCSV(v.key, history[v.key]?.points, sensorId, hours)}
+              <button onClick={() => exportCSV(v.key, history[v.key]?.points, sensorId, hours)}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                title="Exportar CSV"
-              >
+                title="Exportar CSV">
                 <Download size={16} />
               </button>
             </div>
           </div>
 
-          {showStats && stats && (
-            <StatsCard stats={stats} unit={v.unit} color={v.color} />
-          )}
+          {showStats && stats && <StatsCard stats={stats} unit={v.unit} color={v.color} />}
 
           <div className="flex-1 relative w-full min-h-[200px] mt-4">
             {isEmpty ? (
@@ -375,9 +316,9 @@ const HistoryView = ({ sensorId = 's1' }) => {
               </div>
             ) : (
               <Line
-                ref={(el) => { chartRefs.current[v.key] = el; }} 
+                ref={(el) => { chartRefs.current[v.key] = el; }}
                 data={data}
-                options={getBaseOptions(v)} // ✅ CORRECCIÓN 4: Pasar el objeto ejecutando la función
+                options={getBaseOptions(v)}
                 role="img"
                 aria-label={`Historial de ${v.label} en las últimas ${hours}h`}
               />
@@ -390,9 +331,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
 
   return (
     <div className="flex flex-col gap-6 w-full mx-auto p-4 md:p-6 text-slate-800 font-sans animate-in fade-in duration-500">
-      <div className="bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-slate-100
-        flex flex-col gap-5">
-
+      <div className="bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-5">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="flex items-center gap-5">
             <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl shadow-sm border border-indigo-100/50">
@@ -410,24 +349,17 @@ const HistoryView = ({ sensorId = 's1' }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            <button
-              onClick={() => setShowStats(v => !v)}
+            <button onClick={() => setShowStats(v => !v)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all
                 ${showStats
                   ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                  : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200'}`}
-            >
-              <BarChart2 size={14} />
-              Estadísticas
+                  : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200'}`}>
+              <BarChart2 size={14} /> Estadísticas
             </button>
-
-            <button
-              onClick={() => load(true)}
-              disabled={loading || isRefreshing}
+            <button onClick={() => load(true)} disabled={loading || isRefreshing}
               className="flex items-center gap-2 px-5 py-2 bg-indigo-600 border border-transparent
                 rounded-xl text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm
-                shadow-indigo-200 transition-colors disabled:opacity-50 h-[38px]"
-            >
+                shadow-indigo-200 transition-colors disabled:opacity-50 h-[38px]">
               <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
               {isRefreshing ? 'Actualizando' : 'Actualizar'}
             </button>
@@ -438,18 +370,13 @@ const HistoryView = ({ sensorId = 's1' }) => {
           <div className="overflow-x-auto pb-1 -mb-1 scrollbar-hide flex-1">
             <div className="flex bg-slate-100/80 p-1 rounded-xl w-max border border-slate-200/50">
               {TIME_FILTERS.map(opt => (
-                <button
-                  key={opt.val}
-                  onClick={() => {
-                    autoSearchRef.current = false; 
-                    setHours(opt.val);
-                  }}
+                <button key={opt.val}
+                  onClick={() => { autoSearchRef.current = false; setHours(opt.val); }}
                   className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
                     ${hours === opt.val
                       ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50'
                       : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'}`}
-                  aria-pressed={hours === opt.val}
-                >
+                  aria-pressed={hours === opt.val}>
                   {opt.label}
                 </button>
               ))}
@@ -505,7 +432,6 @@ const HistoryView = ({ sensorId = 's1' }) => {
           <SOCChart sensorId={sensorId} hours={hours} title="Estado de carga vs. Tensión de batería" />
         </div>
       </div>
-
     </div>
   );
 };

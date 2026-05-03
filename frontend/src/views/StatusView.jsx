@@ -1,22 +1,20 @@
 /**
  * StatusView.jsx
  * --------------
- * Mejoras Fase 3:
- *  - Historial completo de alertas paginado (GET /alerts/history)
- *  - Filtros por nivel y variable
- *  - Eliminar evaluateAlerts (ya lo hace AlertNotifier globalmente)
+ * Corrección: timestamps en UTC (timeZone: 'UTC') para evitar
+ * desfase de +2h por conversión a hora local del navegador.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
 import SOCChart from '../utils/SOChart';
+import { fmtTimeSec, fmtFull } from '../utils/formatTimestamp';
 import {
   Loader2, RefreshCw, Trash2, Settings2,
   Activity, Zap, AlertTriangle, ShieldCheck,
   BatteryFull, BatteryMedium, BatteryWarning, Battery,
   ChevronLeft, ChevronRight, Filter, X
 } from 'lucide-react';
-
 
 const VARIABLE_LABELS = {
   radiacion:  'Radiación solar',
@@ -30,7 +28,6 @@ const VARIABLE_LABELS = {
 
 const VARIABLES_LIST = Object.keys(VARIABLE_LABELS);
 
-// ─── Paginación ───────────────────────────────────────────────
 const Pagination = ({ page, pages, total, onPage }) => {
   if (pages <= 1) return null;
   return (
@@ -39,23 +36,15 @@ const Pagination = ({ page, pages, total, onPage }) => {
         {total} alerta{total !== 1 ? 's' : ''} en total
       </span>
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => onPage(page - 1)}
-          disabled={page === 1}
+        <button onClick={() => onPage(page - 1)} disabled={page === 1}
           className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50
-            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
+            disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           <ChevronLeft size={16} className="text-slate-600" />
         </button>
-        <span className="text-sm font-semibold text-slate-700 px-2">
-          {page} / {pages}
-        </span>
-        <button
-          onClick={() => onPage(page + 1)}
-          disabled={page === pages}
+        <span className="text-sm font-semibold text-slate-700 px-2">{page} / {pages}</span>
+        <button onClick={() => onPage(page + 1)} disabled={page === pages}
           className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50
-            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
+            disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           <ChevronRight size={16} className="text-slate-600" />
         </button>
       </div>
@@ -63,16 +52,13 @@ const Pagination = ({ page, pages, total, onPage }) => {
   );
 };
 
-// ─── Componente principal ─────────────────────────────────────
 const StatusView = ({ sensorId = 's1', onNavigate }) => {
-  // Estado general
   const [status,      setStatus]      = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [clearing,    setClearing]    = useState(false);
   const [isRefreshing,setIsRefreshing]= useState(false);
 
-  // Historial de alertas
   const [alertHistory,    setAlertHistory]    = useState(null);
   const [alertPage,       setAlertPage]       = useState(1);
   const [alertLevelFilter,setAlertLevelFilter]= useState('');
@@ -82,7 +68,6 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
 
   const LIMIT = 10;
 
-  // ── Carga estado general ────────────────────────────────────
   const load = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
     setError(null);
@@ -97,13 +82,11 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
     }
   }, [sensorId]);
 
-  // ── Carga historial de alertas ──────────────────────────────
   const loadHistory = useCallback(async (page = 1) => {
     setLoadingHistory(true);
     try {
       const res = await api.getAlertsHistory(sensorId, {
-        page,
-        limit:    LIMIT,
+        page, limit: LIMIT,
         level:    alertLevelFilter || undefined,
         variable: alertVarFilter   || undefined,
       });
@@ -143,7 +126,6 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
     </div>
   );
 
-  // Lógica batería
   const pct = status?.battery_percent ?? 0;
   let battColor = 'bg-rose-500', battText = 'text-rose-600',
       battBg = 'bg-rose-50', BattIcon = BatteryWarning;
@@ -171,9 +153,10 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
               <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-mono text-xs">
                 {sensorId}
               </span>
+              {/* ✅ CORREGIDO: fmtTimeSec usa timeZone UTC */}
               {status?.last_update && (
                 <span className="text-xs text-slate-400 hidden sm:inline">
-                  · Act: {new Date(status.last_update).toLocaleTimeString('es-ES')}
+                  · Act: {fmtTimeSec(status.last_update)}
                 </span>
               )}
             </div>
@@ -332,12 +315,13 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
                       )}
                     </div>
                   </div>
+                  {/* ✅ CORREGIDO: fmtFull usa timeZone UTC */}
                   {a.timestamp && (
                     <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1
                       text-sm font-medium text-slate-500 pl-14 sm:pl-0 border-t sm:border-t-0
                       border-slate-200/50 pt-3 sm:pt-0">
-                      <span>{new Date(a.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</span>
-                      <span className="text-xs">{new Date(a.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>{new Date(a.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'UTC' })}</span>
+                      <span className="text-xs">{new Date(a.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}</span>
                     </div>
                   )}
                 </div>
@@ -380,28 +364,23 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
               </span>
             )}
           </h3>
-          <button
-            onClick={() => setShowFilters(v => !v)}
+          <button onClick={() => setShowFilters(v => !v)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all
               ${showFilters
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-200'}`}
-          >
+                : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-200'}`}>
             <Filter size={13} /> Filtros
           </button>
         </div>
 
-        {/* Filtros */}
         {showFilters && (
           <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex flex-wrap gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nivel</label>
-              <select
-                value={alertLevelFilter}
+              <select value={alertLevelFilter}
                 onChange={e => { setAlertLevelFilter(e.target.value); setAlertPage(1); }}
                 className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white
-                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-              >
+                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
                 <option value="">Todos</option>
                 <option value="warning">Aviso</option>
                 <option value="critical">Crítico</option>
@@ -409,12 +388,10 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Variable</label>
-              <select
-                value={alertVarFilter}
+              <select value={alertVarFilter}
                 onChange={e => { setAlertVarFilter(e.target.value); setAlertPage(1); }}
                 className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white
-                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-              >
+                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
                 <option value="">Todas</option>
                 {VARIABLES_LIST.map(v => (
                   <option key={v} value={v}>{VARIABLE_LABELS[v]}</option>
@@ -422,18 +399,15 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
               </select>
             </div>
             {(alertLevelFilter || alertVarFilter) && (
-              <button
-                onClick={() => { setAlertLevelFilter(''); setAlertVarFilter(''); }}
+              <button onClick={() => { setAlertLevelFilter(''); setAlertVarFilter(''); }}
                 className="self-end flex items-center gap-1 px-3 py-2 text-xs font-bold
-                  text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-              >
+                  text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                 <X size={12} /> Limpiar
               </button>
             )}
           </div>
         )}
 
-        {/* Tabla historial */}
         {loadingHistory ? (
           <div className="flex items-center justify-center p-12">
             <Loader2 className="animate-spin text-indigo-400" size={28} />
@@ -459,10 +433,9 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
                 <tbody className="divide-y divide-slate-50">
                   {alertHistory.alerts.map(a => (
                     <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
+                      {/* ✅ CORREGIDO: fmtFull usa timeZone UTC */}
                       <td className="px-6 py-3 text-xs text-slate-500 whitespace-nowrap">
-                        {new Date(a.timestamp).toLocaleString('es-ES', {
-                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-                        })}
+                        {fmtFull(a.timestamp)}
                       </td>
                       <td className="px-6 py-3 text-sm font-medium text-slate-700">
                         {VARIABLE_LABELS[a.variable] ?? a.variable}
@@ -473,9 +446,7 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
                           {a.level === 'critical' ? 'Crítico' : 'Aviso'}
                         </span>
                       </td>
-                      <td className="px-6 py-3 text-sm font-mono text-slate-600">
-                        {a.value ?? '—'}
-                      </td>
+                      <td className="px-6 py-3 text-sm font-mono text-slate-600">{a.value ?? '—'}</td>
                       <td className="px-6 py-3 text-sm text-slate-600 max-w-xs truncate" title={a.message}>
                         {a.message}
                       </td>
@@ -495,10 +466,11 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">{a.message}</p>
+                    {/* ✅ CORREGIDO */}
                     <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
                       <span>{VARIABLE_LABELS[a.variable] ?? a.variable}</span>
                       <span>·</span>
-                      <span>{new Date(a.timestamp).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>{fmtFull(a.timestamp)}</span>
                     </div>
                   </div>
                 </div>

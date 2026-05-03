@@ -1,16 +1,13 @@
 /**
  * EnergyView.jsx
  * --------------
- * Panel de gestión energética:
- * - Energía acumulada diaria/mensual (Ah)
- * - Balance generación vs consumo
- * - Gráfica de barras por día
- * - Indicadores de tendencia energética
- * - Estado de carga histórico
+ * Corrección: timestamps del balance histórico en UTC.
+ * Solo se cambia la generación de labels del gráfico de líneas.
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { fmtAxis } from '../utils/formatTimestamp';
 import {
   Loader2, RefreshCw, Zap, Battery, TrendingUp,
   TrendingDown, Minus, BarChart2, Activity,
@@ -30,7 +27,6 @@ ChartJS.register(
   PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin
 );
 
-// ── Constantes ────────────────────────────────────────────────
 const DAY_FILTERS = [
   { label: '7 días',  val: 7  },
   { label: '14 días', val: 14 },
@@ -61,40 +57,30 @@ const CHART_TOOLTIP = {
   usePointStyle:   true,
 };
 
-// ─── Exportar CSV Específico para Balance ──────────────────────
 const exportBalanceCSV = (points, sensorId, hours) => {
   if (!points?.length) return;
-  
-  // Cabecera con todas las columnas
   const header = 'timestamp,i_generada_A,i_carga_A,neto_A\n';
   const rows   = points.map(p => `${p.timestamp},${p.i_generada},${p.i_carga},${p.net}`).join('\n');
-  
   const blob   = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
-  a.href       = url;
-  a.download   = `${sensorId}_balance_${hours}h.csv`;
-  a.click();
+  a.href = url; a.download = `${sensorId}_balance_${hours}h.csv`; a.click();
   URL.revokeObjectURL(url);
 };
 
-// ── Helpers ───────────────────────────────────────────────────
-const fmt = (v, dec = 2) =>
-  v != null ? Number(v).toFixed(dec) : '—';
+const fmt = (v, dec = 2) => v != null ? Number(v).toFixed(dec) : '—';
 
 const TrendBadge = ({ value }) => {
   if (value == null) return <span className="text-slate-400 text-xs">—</span>;
   const isPos = value >= 0;
   return (
-    <span className={`flex items-center gap-1 text-xs font-bold
-      ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+    <span className={`flex items-center gap-1 text-xs font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
       {isPos ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
       {isPos ? '+' : ''}{fmt(value)} Ah
     </span>
   );
 };
 
-// ── KPI Card ──────────────────────────────────────────────────
 const KpiCard = ({ label, value, unit, sub, icon, color, bg, trend }) => (
   <div className="bg-white border border-slate-100 shadow-sm hover:shadow-md
     transition-shadow flex flex-col rounded-2xl overflow-hidden">
@@ -114,7 +100,6 @@ const KpiCard = ({ label, value, unit, sub, icon, color, bg, trend }) => (
   </div>
 );
 
-// ── Componente principal ──────────────────────────────────────
 const EnergyView = ({ sensorId = 's1' }) => {
   const [days,         setDays]         = useState(7);
   const [balanceHours, setBalanceHours] = useState(24);
@@ -123,9 +108,7 @@ const EnergyView = ({ sensorId = 's1' }) => {
   const [loading,      setLoading]      = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error,        setError]        = useState(null);
-  
-  // Referencia específica para el gráfico de líneas (balance)
-  const balanceChartRef = useRef(null); 
+  const balanceChartRef = useRef(null);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setIsRefreshing(true);
@@ -148,31 +131,24 @@ const EnergyView = ({ sensorId = 's1' }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── KPIs derivados ────────────────────────────────────────
   const kpis = useMemo(() => {
     if (!energyDaily.length) return null;
-
     const totalGen  = energyDaily.reduce((s, d) => s + (d.gen_ah  ?? 0), 0);
     const totalLoad = energyDaily.reduce((s, d) => s + (d.load_ah ?? 0), 0);
     const totalNet  = totalGen - totalLoad;
-
-    const bestDay  = [...energyDaily].sort((a, b) => b.gen_ah  - a.gen_ah)[0];
-    const worstDay = [...energyDaily].sort((a, b) => a.gen_ah  - b.gen_ah)[0];
-
-    const avgGen  = totalGen  / energyDaily.length;
-    const avgLoad = totalLoad / energyDaily.length;
-
+    const bestDay   = [...energyDaily].sort((a, b) => b.gen_ah - a.gen_ah)[0];
+    const avgGen    = totalGen  / energyDaily.length;
+    const avgLoad   = totalLoad / energyDaily.length;
     const half   = Math.floor(energyDaily.length / 2);
     const first  = energyDaily.slice(0, half).reduce((s, d) => s + d.gen_ah, 0) / (half || 1);
     const second = energyDaily.slice(half).reduce((s, d) => s + d.gen_ah, 0)    / (energyDaily.length - half || 1);
-    const trend  = second - first;
-
-    return { totalGen, totalLoad, totalNet, bestDay, worstDay, avgGen, avgLoad, trend };
+    return { totalGen, totalLoad, totalNet, bestDay, avgGen, avgLoad, trend: second - first };
   }, [energyDaily]);
 
-  // ── Gráfica barras diaria ─────────────────────────────────
   const dailyChartData = useMemo(() => {
     if (!energyDaily.length) return null;
+    // Las fechas diarias son "YYYY-MM-DD", se parsean con T12:00:00 para evitar
+    // problemas de zona horaria en la fecha (esto es correcto, no es un timestamp UTC)
     const labels = energyDaily.map(d => {
       const date = new Date(d.day + 'T12:00:00');
       return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
@@ -193,17 +169,11 @@ const EnergyView = ({ sensorId = 's1' }) => {
     };
   }, [energyDaily]);
 
-  // ── Gráfica balance histórico ─────────────────────────────
   const balanceChartData = useMemo(() => {
     if (!balance?.points?.length) return null;
-    const labels = balance.points.map(p => {
-      const d = new Date(p.timestamp);
-      return balanceHours > 24
-        ? d.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-        : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-    });
     return {
-      labels,
+      // ✅ CORREGIDO: fmtAxis usa timeZone UTC
+      labels: balance.points.map(p => fmtAxis(p.timestamp, balanceHours)),
       datasets: [
         { label: 'Generada (A)',  data: balance.points.map(p => p.i_generada), borderColor: '#10B981', backgroundColor: 'rgba(16,185,129,0.1)',  borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.4, fill: true  },
         { label: 'Consumida (A)', data: balance.points.map(p => p.i_carga),    borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.4, fill: true  },
@@ -213,71 +183,30 @@ const EnergyView = ({ sensorId = 's1' }) => {
   }, [balance, balanceHours]);
 
   const barOptions = {
-    responsive:           true,
-    maintainAspectRatio:  false,
-    interaction:          { mode: 'index', intersect: false },
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend:  { display: true, position: 'top' },
-      zoom:    {
-        pan: {
-          enabled: true,
-          mode: 'x', 
-        },
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x', 
-        },
-      },
+      legend: { display: true, position: 'top' },
+      zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } },
       tooltip: CHART_TOOLTIP,
     },
     scales: {
-      x: {
-        grid:   { display: false },
-        ticks:  { font: { size: 11 }, color: '#94A3B8' },
-        border: { display: false },
-      },
-      y: {
-        grid:   { color: '#F1F5F9', borderDash: [4, 4] },
-        ticks:  { font: { size: 11 }, color: '#94A3B8', callback: v => `${v} Ah` },
-        border: { display: false },
-      },
+      x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#94A3B8' }, border: { display: false } },
+      y: { grid: { color: '#F1F5F9', borderDash: [4, 4] }, ticks: { font: { size: 11 }, color: '#94A3B8', callback: v => `${v} Ah` }, border: { display: false } },
     },
   };
 
   const lineOptions = {
-    responsive:          true,
-    maintainAspectRatio: false,
-    interaction:         { mode: 'index', intersect: false },
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend:  { display: true, position: 'top' },
+      legend: { display: true, position: 'top' },
       tooltip: CHART_TOOLTIP,
-      // Habilitar el zoom para el balance de líneas
-      zoom: {
-        pan: {
-          enabled: true,
-          mode: 'x',
-        },
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x',
-        },
-      },
+      zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } },
     },
     scales: {
-      x: {
-        grid:   { display: false },
-        ticks:  { maxTicksLimit: 8, font: { size: 11 }, color: '#94A3B8' },
-        border: { display: false },
-      },
-      y: {
-        min: 0,
-        max: 1,
-        grid:   { color: '#F1F5F9', borderDash: [4, 4] },
-        ticks:  { font: { size: 11 }, color: '#94A3B8', callback: v => `${v} A` },
-        border: { display: false },
-      },
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 11 }, color: '#94A3B8' }, border: { display: false } },
+      y: { min: 0, max: 1, grid: { color: '#F1F5F9', borderDash: [4, 4] }, ticks: { font: { size: 11 }, color: '#94A3B8', callback: v => `${v} A` }, border: { display: false } },
     },
   };
 
@@ -285,53 +214,41 @@ const EnergyView = ({ sensorId = 's1' }) => {
     <div className="flex flex-col items-center justify-center h-96 bg-slate-50/50
       rounded-3xl border border-dashed border-slate-200 animate-in fade-in m-4 md:m-6">
       <Loader2 className="animate-spin text-indigo-500 mb-4" size={40} />
-      <p className="text-sm text-slate-500 font-medium animate-pulse">
-        Calculando balance energético...
-      </p>
+      <p className="text-sm text-slate-500 font-medium animate-pulse">Calculando balance energético...</p>
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-6 w-full mx-auto p-4 md:p-6 text-slate-800
-      font-sans animate-in fade-in duration-500">
+    <div className="flex flex-col gap-6 w-full mx-auto p-4 md:p-6 text-slate-800 font-sans animate-in fade-in duration-500">
 
       {/* HEADER */}
       <div className="bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-slate-100
         flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5">
         <div className="flex items-center gap-5">
-          <div className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl shadow-sm
-            border border-emerald-100/50">
+          <div className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl shadow-sm border border-emerald-100/50">
             <Zap size={26} strokeWidth={1.5} />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">
-              Gestión Energética
-            </h2>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Gestión Energética</h2>
             <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
               <span>Nodo activo:</span>
-              <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5
-                rounded-md font-mono text-xs">{sensorId}</span>
+              <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-mono text-xs">{sensorId}</span>
               <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded hidden sm:inline">
                 Panel 10W · Batería 12V 7.2Ah
               </span>
             </div>
           </div>
         </div>
-
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          {/* Selector días */}
           <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
             {DAY_FILTERS.map(opt => (
               <button key={opt.val} onClick={() => setDays(opt.val)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                  ${days === opt.val
-                    ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-slate-200/50'
-                    : 'text-slate-500 hover:text-slate-900'}`}>
+                  ${days === opt.val ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-900'}`}>
                 {opt.label}
               </button>
             ))}
           </div>
-
           <button onClick={() => load(true)} disabled={isRefreshing}
             className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700
               text-sm font-semibold text-white rounded-xl shadow-sm shadow-emerald-200
@@ -342,62 +259,19 @@ const EnergyView = ({ sensorId = 's1' }) => {
         </div>
       </div>
 
-      {/* ERROR */}
       {error && (
-        <div className="bg-white border border-rose-100 p-5 flex items-center gap-4
-          text-rose-700 shadow-sm rounded-2xl">
-          <div className="p-2 bg-rose-50 rounded-full">
-            <AlertCircle size={20} className="text-rose-500" />
-          </div>
+        <div className="bg-white border border-rose-100 p-5 flex items-center gap-4 text-rose-700 shadow-sm rounded-2xl">
+          <div className="p-2 bg-rose-50 rounded-full"><AlertCircle size={20} className="text-rose-500" /></div>
           <p className="text-sm font-medium">{error}</p>
         </div>
       )}
 
-      {/* KPIs */}
       {kpis && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <KpiCard
-            label="Total Generada"
-            value={fmt(kpis.totalGen)}
-            unit="Ah"
-            sub={`Media ${fmt(kpis.avgGen)} Ah/día`}
-            trend={kpis.trend}
-            color="text-emerald-600"
-            bg="bg-emerald-50"
-            icon={<Zap size={18} className="text-emerald-500" strokeWidth={2} />}
-          />
-          <KpiCard
-            label="Total Consumida"
-            value={fmt(kpis.totalLoad)}
-            unit="Ah"
-            sub={`Media ${fmt(kpis.avgLoad)} Ah/día`}
-            color="text-indigo-600"
-            bg="bg-indigo-50"
-            icon={<Activity size={18} className="text-indigo-500" strokeWidth={2} />}
-          />
-          <KpiCard
-            label="Balance Neto"
-            value={fmt(kpis.totalNet)}
-            unit="Ah"
-            sub={kpis.totalNet >= 0 ? 'Superávit energético' : 'Déficit energético'}
-            color={kpis.totalNet >= 0 ? 'text-amber-600' : 'text-rose-600'}
-            bg={kpis.totalNet >= 0 ? 'bg-amber-50' : 'bg-rose-50'}
-            icon={kpis.totalNet >= 0
-              ? <TrendingUp   size={18} className="text-amber-500"  strokeWidth={2} />
-              : <TrendingDown size={18} className="text-rose-500"   strokeWidth={2} />
-            }
-          />
-          <KpiCard
-            label="Mejor Día"
-            value={fmt(kpis.bestDay?.gen_ah)}
-            unit="Ah"
-            sub={kpis.bestDay?.day
-              ? new Date(kpis.bestDay.day + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
-              : '—'}
-            color="text-sky-600"
-            bg="bg-sky-50"
-            icon={<Battery size={18} className="text-sky-500" strokeWidth={2} />}
-          />
+          <KpiCard label="Total Generada" value={fmt(kpis.totalGen)} unit="Ah" sub={`Media ${fmt(kpis.avgGen)} Ah/día`} trend={kpis.trend} color="text-emerald-600" bg="bg-emerald-50" icon={<Zap size={18} className="text-emerald-500" strokeWidth={2} />} />
+          <KpiCard label="Total Consumida" value={fmt(kpis.totalLoad)} unit="Ah" sub={`Media ${fmt(kpis.avgLoad)} Ah/día`} color="text-indigo-600" bg="bg-indigo-50" icon={<Activity size={18} className="text-indigo-500" strokeWidth={2} />} />
+          <KpiCard label="Balance Neto" value={fmt(kpis.totalNet)} unit="Ah" sub={kpis.totalNet >= 0 ? 'Superávit energético' : 'Déficit energético'} color={kpis.totalNet >= 0 ? 'text-amber-600' : 'text-rose-600'} bg={kpis.totalNet >= 0 ? 'bg-amber-50' : 'bg-rose-50'} icon={kpis.totalNet >= 0 ? <TrendingUp size={18} className="text-amber-500" strokeWidth={2} /> : <TrendingDown size={18} className="text-rose-500" strokeWidth={2} />} />
+          <KpiCard label="Mejor Día" value={fmt(kpis.bestDay?.gen_ah)} unit="Ah" sub={kpis.bestDay?.day ? new Date(kpis.bestDay.day + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : '—'} color="text-sky-600" bg="bg-sky-50" icon={<Battery size={18} className="text-sky-500" strokeWidth={2} />} />
         </div>
       )}
 
@@ -406,26 +280,19 @@ const EnergyView = ({ sensorId = 's1' }) => {
         <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-2">
           <BarChart2 size={22} className="text-emerald-400" />
           <div>
-            <h3 className="text-lg font-semibold text-slate-800">
-              Energía Diaria — Últimos {days} días
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Generada vs Consumida vs Balance neto (Ah)
-            </p>
+            <h3 className="text-lg font-semibold text-slate-800">Energía Diaria — Últimos {days} días</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Generada vs Consumida vs Balance neto (Ah)</p>
           </div>
         </div>
         <div className="p-6 h-[320px]">
-          {dailyChartData ? (
-            <Bar data={dailyChartData} options={barOptions} />
-          ) : (
-            <div className="h-full flex items-center justify-center text-slate-400">
-              <p className="text-sm">Sin datos en el período seleccionado</p>
-            </div>
-          )}
+          {dailyChartData
+            ? <Bar data={dailyChartData} options={barOptions} />
+            : <div className="h-full flex items-center justify-center text-slate-400"><p className="text-sm">Sin datos en el período seleccionado</p></div>
+          }
         </div>
       </div>
 
-      {/* RESUMEN POR DÍA — tabla compacta */}
+      {/* TABLA DIARIA */}
       {energyDaily.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-2">
@@ -446,16 +313,10 @@ const EnergyView = ({ sensorId = 's1' }) => {
                 {[...energyDaily].reverse().map(d => (
                   <tr key={d.day} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-3 text-slate-600 font-medium">
-                      {new Date(d.day + 'T12:00:00').toLocaleDateString('es-ES', {
-                        weekday: 'short', day: '2-digit', month: 'short'
-                      })}
+                      {new Date(d.day + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short' })}
                     </td>
-                    <td className="px-6 py-3 text-right font-bold text-emerald-600">
-                      {fmt(d.gen_ah)}
-                    </td>
-                    <td className="px-6 py-3 text-right font-bold text-indigo-600">
-                      {fmt(d.load_ah)}
-                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-emerald-600">{fmt(d.gen_ah)}</td>
+                    <td className="px-6 py-3 text-right font-bold text-indigo-600">{fmt(d.load_ah)}</td>
                     <td className="px-6 py-3 text-right">
                       <span className={`font-bold ${d.net_ah >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>
                         {d.net_ah >= 0 ? '+' : ''}{fmt(d.net_ah)}
@@ -464,19 +325,12 @@ const EnergyView = ({ sensorId = 's1' }) => {
                   </tr>
                 ))}
               </tbody>
-              {/* Totales */}
               {kpis && (
                 <tfoot>
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
-                    <td className="px-6 py-3 font-black text-slate-700 uppercase text-xs tracking-wider">
-                      Total {days}d
-                    </td>
-                    <td className="px-6 py-3 text-right font-black text-emerald-700">
-                      {fmt(kpis.totalGen)}
-                    </td>
-                    <td className="px-6 py-3 text-right font-black text-indigo-700">
-                      {fmt(kpis.totalLoad)}
-                    </td>
+                    <td className="px-6 py-3 font-black text-slate-700 uppercase text-xs tracking-wider">Total {days}d</td>
+                    <td className="px-6 py-3 text-right font-black text-emerald-700">{fmt(kpis.totalGen)}</td>
+                    <td className="px-6 py-3 text-right font-black text-indigo-700">{fmt(kpis.totalLoad)}</td>
                     <td className="px-6 py-3 text-right">
                       <span className={`font-black ${kpis.totalNet >= 0 ? 'text-amber-700' : 'text-rose-700'}`}>
                         {kpis.totalNet >= 0 ? '+' : ''}{fmt(kpis.totalNet)}
@@ -490,72 +344,48 @@ const EnergyView = ({ sensorId = 's1' }) => {
         </div>
       )}
 
-      {/* BALANCE HISTÓRICO EN TIEMPO - AHORA CON CLASE "group" PARA EL HOVER */}
+      {/* BALANCE HISTÓRICO */}
       <div className="group bg-white border border-slate-100 shadow-sm rounded-2xl overflow-hidden transition-shadow hover:shadow-md">
-        <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row
-          sm:items-center justify-between gap-4">
+        <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Activity size={22} className="text-indigo-400" />
             <div>
-              <h3 className="text-lg font-semibold text-slate-800">
-                Balance en Tiempo Real
-              </h3>
+              <h3 className="text-lg font-semibold text-slate-800">Balance en Tiempo Real</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Corriente generada vs consumida (agrupado: {balance?.interval ?? '—'}) · Rango fijo 0–1A (ACS730, panel 10W)
+                Corriente generada vs consumida (agrupado: {balance?.interval ?? '—'}) · Rango fijo 0–1A
               </p>
             </div>
           </div>
-
-          {/* Selector horas balance */}
           <div className="flex items-center gap-3">
-            {/* Badge rango fijo */}
-            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded hidden sm:inline">
-              0–1 A
-            </span>
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded hidden sm:inline">0–1 A</span>
           </div>
-
           <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
             {BALANCE_HOURS.map(opt => (
               <button key={opt.val} onClick={() => setBalanceHours(opt.val)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                  ${balanceHours === opt.val
-                    ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50'
-                    : 'text-slate-500 hover:text-slate-900'}`}>
+                  ${balanceHours === opt.val ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-900'}`}>
                 {opt.label}
               </button>
             ))}
           </div>
         </div>
-        
-        {/* Contenedor relativo de la gráfica con botones absolutos */}
         <div className="p-6 h-[320px] relative">
-          
-          {/* Botones Flotantes ocultos por defecto, visibles al pasar el ratón (hover) */}
           <div className="absolute top-4 right-8 flex items-center gap-2 z-10">
-            <button
-              onClick={() => balanceChartRef.current?.resetZoom()} 
+            <button onClick={() => balanceChartRef.current?.resetZoom()}
               className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="Restablecer zoom"
-            >
+              title="Restablecer zoom">
               <ZoomOut size={16} />
             </button>
-
-            <button
-              onClick={() => exportBalanceCSV(balance?.points, sensorId, balanceHours)}
+            <button onClick={() => exportBalanceCSV(balance?.points, sensorId, balanceHours)}
               className="p-2 text-slate-400 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="Exportar CSV"
-            >
+              title="Exportar CSV">
               <Download size={16} />
             </button>
           </div>
-
-          {balanceChartData ? (
-            <Line ref={balanceChartRef} data={balanceChartData} options={lineOptions} />
-          ) : (
-            <div className="h-full flex items-center justify-center text-slate-400">
-              <p className="text-sm">Sin datos de balance en este período</p>
-            </div>
-          )}
+          {balanceChartData
+            ? <Line ref={balanceChartRef} data={balanceChartData} options={lineOptions} />
+            : <div className="h-full flex items-center justify-center text-slate-400"><p className="text-sm">Sin datos de balance en este período</p></div>
+          }
         </div>
       </div>
 

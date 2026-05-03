@@ -1,11 +1,7 @@
 /**
  * AlertNotifier.jsx
  * -----------------
- * Mejoras Fase 5:
- *  - Usa evaluate/full (umbral + tendencia)
- *  - Botón "Silenciar Xh" directamente desde el toast
- *  - Soporte modo oscuro
- *  - Muestra snoozes activos
+ * Corrección: timestamps de alertas y snoozes en UTC.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -14,9 +10,10 @@ import {
   BellOff, Bell, Clock
 } from 'lucide-react';
 import { api } from '../services/api';
+import { fmtTime } from '../utils/formatTimestamp';
 
 const POLL_INTERVAL  = 30_000;
-const SNOOZE_OPTIONS = [1, 2, 4, 8, 24];  // horas
+const SNOOZE_OPTIONS = [1, 2, 4, 8, 24];
 
 const LEVEL_CONFIG = {
   critical: {
@@ -45,8 +42,7 @@ const LEVEL_CONFIG = {
   },
 };
 
-const getCfg = (level) =>
-  LEVEL_CONFIG[level] ?? LEVEL_CONFIG.warning;
+const getCfg = (level) => LEVEL_CONFIG[level] ?? LEVEL_CONFIG.warning;
 
 const AlertNotifier = ({ sensorId }) => {
   const [alerts,       setAlerts]       = useState([]);
@@ -54,12 +50,11 @@ const AlertNotifier = ({ sensorId }) => {
   const [expanded,     setExpanded]     = useState(false);
   const [dismissed,    setDismissed]    = useState(false);
   const [showSnooze,   setShowSnooze]   = useState(false);
-  const [snoozingVar,  setSnoozingVar]  = useState(null);  // variable siendo snoozed
+  const [snoozingVar,  setSnoozingVar]  = useState(null);
   const timerRef = useRef(null);
 
   const fetchAlerts = useCallback(async () => {
     try {
-      // Evaluación completa: umbral + tendencia
       await api.evaluateAlertsFull?.(sensorId) ?? await api.evaluateAlerts(sensorId);
 
       const [statusRes, snoozeRes] = await Promise.all([
@@ -91,7 +86,6 @@ const AlertNotifier = ({ sensorId }) => {
       setSnoozingVar(variable);
       await api.snoozeAlert?.({ sensor_id: sensorId, variable, hours });
       setShowSnooze(false);
-      // Refrescar
       await fetchAlerts();
     } catch {
       // Silencioso
@@ -111,7 +105,6 @@ const AlertNotifier = ({ sensorId }) => {
 
   if (!alerts.length || dismissed) return null;
 
-  // Prioridad: critical > trend_critical > trend_warning > warning
   const priority = ['critical', 'trend_critical', 'trend_warning', 'warning'];
   const topLevel = priority.find(l => alerts.some(a => a.level === l)) ?? 'warning';
   const topAlert = alerts.find(a => a.level === topLevel) ?? alerts[0];
@@ -129,47 +122,31 @@ const AlertNotifier = ({ sensorId }) => {
       {/* CABECERA */}
       <div className="flex items-center gap-3 px-4 py-3">
         <AlertTriangle size={20} className="flex-shrink-0 opacity-90 animate-pulse" />
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-[10px] font-black uppercase tracking-widest
-              px-1.5 py-0.5 rounded ${getCfg(topLevel).badge}`}>
+            <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${getCfg(topLevel).badge}`}>
               {getCfg(topLevel).label}
             </span>
             <span className="text-xs font-bold opacity-80">
               {alerts.length} incidencia{alerts.length > 1 ? 's' : ''} · {sensorId}
             </span>
           </div>
-          <p className="text-sm font-semibold truncate mt-0.5 leading-tight">
-            {topAlert.message}
-          </p>
+          <p className="text-sm font-semibold truncate mt-0.5 leading-tight">{topAlert.message}</p>
         </div>
-
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Botón snooze */}
-          <button
-            onClick={() => setShowSnooze(v => !v)}
-            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-            title="Silenciar alertas"
-          >
+          <button onClick={() => setShowSnooze(v => !v)}
+            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors" title="Silenciar alertas">
             <BellOff size={15} />
           </button>
-
           {alerts.length > 1 && (
-            <button
-              onClick={() => setExpanded(v => !v)}
+            <button onClick={() => setExpanded(v => !v)}
               className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-              title={expanded ? 'Contraer' : 'Ver todas'}
-            >
+              title={expanded ? 'Contraer' : 'Ver todas'}>
               {expanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
             </button>
           )}
-
-          <button
-            onClick={() => setDismissed(true)}
-            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-            title="Cerrar"
-          >
+          <button onClick={() => setDismissed(true)}
+            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors" title="Cerrar">
             <X size={15} />
           </button>
         </div>
@@ -178,23 +155,16 @@ const AlertNotifier = ({ sensorId }) => {
       {/* PANEL SNOOZE */}
       {showSnooze && (
         <div className="border-t border-white/20 bg-black/20 px-4 py-3">
-          <p className="text-xs font-bold opacity-80 mb-2">
-            Silenciar todo {sensorId}:
-          </p>
+          <p className="text-xs font-bold opacity-80 mb-2">Silenciar todo {sensorId}:</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {SNOOZE_OPTIONS.map(h => (
-              <button
-                key={h}
-                onClick={() => handleSnoozeAll(h)}
-                className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg
-                  text-xs font-bold transition-colors"
-              >
+              <button key={h} onClick={() => handleSnoozeAll(h)}
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors">
                 {h}h
               </button>
             ))}
           </div>
 
-          {/* Snooze por variable */}
           {alerts.length > 0 && (
             <>
               <p className="text-xs font-bold opacity-80 mb-2">Por variable:</p>
@@ -204,13 +174,8 @@ const AlertNotifier = ({ sensorId }) => {
                     <span className="text-xs opacity-80 truncate">{v}</span>
                     <div className="flex gap-1 flex-shrink-0">
                       {[2, 4, 8].map(h => (
-                        <button
-                          key={h}
-                          onClick={() => handleSnooze(v, h)}
-                          disabled={snoozingVar === v}
-                          className="px-2 py-0.5 bg-white/20 hover:bg-white/30
-                            rounded text-[10px] font-bold transition-colors disabled:opacity-50"
-                        >
+                        <button key={h} onClick={() => handleSnooze(v, h)} disabled={snoozingVar === v}
+                          className="px-2 py-0.5 bg-white/20 hover:bg-white/30 rounded text-[10px] font-bold transition-colors disabled:opacity-50">
                           {h}h
                         </button>
                       ))}
@@ -230,11 +195,8 @@ const AlertNotifier = ({ sensorId }) => {
                   <Clock size={10} />
                   <span>{s.variable ?? 'Sensor completo'}</span>
                   <span>·</span>
-                  <span>
-                    hasta {new Date(s.until_ts).toLocaleTimeString('es-ES', {
-                      hour: '2-digit', minute: '2-digit'
-                    })}
-                  </span>
+                  {/* ✅ CORREGIDO: fmtTime usa timeZone UTC */}
+                  <span>hasta {fmtTime(s.until_ts)} UTC</span>
                 </div>
               ))}
             </div>
@@ -248,22 +210,17 @@ const AlertNotifier = ({ sensorId }) => {
           {alerts.map((a, i) => {
             const c = getCfg(a.level);
             return (
-              <div
-                key={i}
-                className="flex items-start gap-3 px-4 py-2.5 border-b
-                  border-white/10 last:border-0 hover:bg-white/10 transition-colors"
-              >
-                <span className={`mt-0.5 text-[10px] font-black px-1.5 py-0.5
-                  rounded flex-shrink-0 ${c.badge}`}>
+              <div key={i} className="flex items-start gap-3 px-4 py-2.5 border-b
+                border-white/10 last:border-0 hover:bg-white/10 transition-colors">
+                <span className={`mt-0.5 text-[10px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${c.badge}`}>
                   {c.label}
                 </span>
                 <div className="min-w-0">
                   <p className="text-xs font-semibold leading-snug">{a.message}</p>
+                  {/* ✅ CORREGIDO: fmtTime usa timeZone UTC */}
                   {a.timestamp && (
                     <p className="text-[10px] opacity-60 mt-0.5">
-                      {new Date(a.timestamp).toLocaleTimeString('es-ES', {
-                        hour: '2-digit', minute: '2-digit'
-                      })}
+                      {fmtTime(a.timestamp)} UTC
                     </p>
                   )}
                 </div>
