@@ -320,8 +320,8 @@ const StatusView = ({ sensorId = 's1', onNavigate }) => {
                     <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1
                       text-sm font-medium text-slate-500 pl-14 sm:pl-0 border-t sm:border-t-0
                       border-slate-200/50 pt-3 sm:pt-0">
-                      <span>{new Date(a.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'UTC' })}</span>
-                      <span className="text-xs">{new Date(a.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}</span>
+                      <span>{new Date(a.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'es-ES' })}</span>
+                      <span className="text-xs">{new Date(a.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'es-ES' })}</span>
                     </div>
                   )}
                 </div>
