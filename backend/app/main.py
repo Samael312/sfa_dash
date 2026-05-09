@@ -333,7 +333,7 @@ def endpoint_latest(sensor_id: str = Query(...)):
 def endpoint_history(
     sensor_id: str = Query(...),
     variable:  str = Query(...),
-    hours:     int = Query(24, ge=1, le=168),
+    hours:     int = Query(24, ge=1, le=720),
 ):
     try:
         points = get_history(sensor_id, variable, hours)

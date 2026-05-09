@@ -1,8 +1,7 @@
 /**
- * SOChart.jsx  (v2.2 — UTC timestamps)
+ * SOChart.jsx  (v2.3 — Rango de tiempo seleccionable)
  * -----------------------------------------
- * Corrección: timestamps del eje X en UTC para evitar
- * desfase de +2h por conversión a hora local del navegador.
+ * Novedad: Selector dinámico de horas en la interfaz.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -47,6 +46,9 @@ const MethodBadge = ({ method, hoursSince }) => {
 };
 
 const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)' }) => {
+  // 1. Añadimos estado para controlar las horas dinámicamente
+  const [selectedHours, setSelectedHours] = useState(hours);
+  
   const [voltagePoints, setVoltagePoints] = useState([]);
   const [socState,      setSocState]      = useState(null);
   const [loading,       setLoading]       = useState(true);
@@ -61,7 +63,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     setSocError(null);
 
     const [voltResult, socResult] = await Promise.allSettled([
-      api.getSFAHistory(sensorId, 'v_bateria', hours),
+      api.getSFAHistory(sensorId, 'v_bateria', selectedHours), // Usamos selectedHours
       api.getSocCurrent(sensorId),
     ]);
 
@@ -82,7 +84,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     }
 
     setLoading(false);
-  }, [sensorId, hours]);
+  }, [sensorId, selectedHours]); // Dependencia actualizada a selectedHours
 
   useEffect(() => { setLoading(true); load(); }, [load]);
 
@@ -137,8 +139,8 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     </div>
   );
 
-  // ✅ CORREGIDO: fmtAxis usa timeZone UTC
-  const labels     = voltagePoints.map(p => fmtAxis(p.timestamp, hours));
+  // Pasamos selectedHours al formato del eje X
+  const labels     = voltagePoints.map(p => fmtAxis(p.timestamp, selectedHours));
   const voltages   = voltagePoints.map(p => p.value);
   const currentSOC = socState?.soc_pct ?? null;
   const ahRemaining = currentSOC != null ? ((currentSOC / 100) * 7.2).toFixed(2) : null;
@@ -185,7 +187,26 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] flex-shrink-0" />
           <span className="font-bold text-slate-800 text-sm">{title}</span>
-          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded uppercase">Últimas {hours}h · UTC</span>
+          
+          {/* Selector de Tiempo Dinámico */}
+          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded">
+            <select
+              value={selectedHours}
+              onChange={(e) => setSelectedHours(Number(e.target.value))}
+              className="bg-transparent text-[10px] font-bold text-slate-600 uppercase outline-none cursor-pointer py-0.5 pl-2 pr-1"
+            >
+              <option value={6}>Últimas 6h</option>
+              <option value={12}>Últimas 12h</option>
+              <option value={24}>Últimas 24h</option>
+              <option value={48}>Últimas 48h</option>
+              <option value={72}>Últimas 72h</option>
+              <option value={168}>Última 1 sem</option>
+              <option value={336}>Últimas 2 sem</option>
+              <option value={720}>Último mes</option>
+            </select>
+            <span className="text-[10px] font-bold text-slate-400 border-l border-slate-300 pl-1 pr-2 py-0.5">UTC</span>
+          </div>
+
           <MethodBadge method={socState?.method} hoursSince={socState?.hours_since_calib} />
         </div>
         <div className="flex items-center gap-1">
@@ -199,7 +220,8 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
             title="Restablecer zoom">
             <ZoomOut size={14} />
           </button>
-          <button onClick={() => exportCSV(voltagePoints, sensorId, hours)}
+          {/* Al descargar CSV, le pasamos las horas que el usuario haya seleccionado */}
+          <button onClick={() => exportCSV(voltagePoints, sensorId, selectedHours)}
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
             title="Exportar CSV">
             <Download size={14} />
@@ -293,7 +315,8 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
           <Line ref={chartRef} data={chartData} options={options} />
         ) : (
           <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-            <p className="text-sm">Sin datos de tensión en las últimas {hours}h</p>
+            {/* Mensaje vacío refleja las horas seleccionadas */}
+            <p className="text-sm">Sin datos de tensión en las últimas {selectedHours}h</p>
           </div>
         )}
       </div>
