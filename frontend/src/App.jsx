@@ -214,7 +214,7 @@ const App = () => {
   const menuStructure = [
     { title: 'Resumen', icon: <LayoutDashboard size={18} />, items: [{ label: 'Panel General', id: 'Overview', icon: <Activity size={16} /> }] },
     { title: 'Monitor', icon: <Wifi size={18} />, items: [{ label: 'Últimos Datos', id: 'Latest', icon: <Radio size={16} /> }] },
-    { title: 'Variables', icon: <Cpu size={18} />, items: [{ label: 'Detalle Sensores', id: 'Status', icon: <Server size={16} /> }] },
+    { title: 'Estado', icon: <Cpu size={18} />, items: [{ label: 'Detalle Sensores', id: 'Status', icon: <Server size={16} /> }] },
     { title: 'Historial', icon: <FileCode size={18} />, items: [{ label: 'Logs Históricos', id: 'History', icon: <Info size={16} /> }] },
     { title: 'Alertas', icon: <Bell size={18} />, items: [{ label: 'Umbrales', id: 'AlertRules', icon: <Settings2 size={16} /> }] },
     { title: 'Energía', icon: <Zap size={18} />, items: [{ label: 'Análisis Energético', id: 'Energy', icon: <Zap size={16} /> }] },

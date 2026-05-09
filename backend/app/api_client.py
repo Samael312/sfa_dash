@@ -3,17 +3,15 @@ api_client.py
 -------------
 Capa de acceso a datos. Lee de sfa_readings, sfa_alerts y alert_rules.
 
-Funciones originales:
-  - get_latest, get_history, get_status, get_sensors
-  - get_alert_rules, create_alert_rule, update_alert_rule, delete_alert_rule
-  - evaluate_alerts, clear_alerts
-
-Funciones extendidas (antes en api_client_extended.py):
-  - get_history_aggregated, get_stats
-  - get_energy_daily, get_energy_balance
-  - get_sensor_connectivity
-  - get_alerts_history
-  - get_multi_sensor_history
+CORRECCIÓN en get_status:
+- Antes: devolvía todas las alertas de las últimas 24h sin deduplicar,
+  causando 25+ entradas por acumulación de tendencias (una por evaluación).
+- Ahora:
+  * Alertas de umbral: una por variable (la más reciente)
+  * Alertas de tendencia ('[tendencia]'): agrupadas por variable,
+    mostrando la más reciente como resumen
+  * El conteo active_alerts ignora tendencias: solo cuenta variables
+    con alertas de umbral activas
 """
 
 from datetime import datetime
@@ -82,7 +80,7 @@ def get_history(sensor_id: str, variable: str, hours: int = 24) -> list[dict] | 
 def get_status(sensor_id: str) -> dict:
     latest = get_latest(sensor_id)
 
-    # ── SOC: usar motor Coulomb (soc_state) con fallback a voltaje ──
+    # ── SOC ─────────────────────────────────────────────────────
     try:
         from app.logic.soc_engine import get_soc_state
         soc_data = get_soc_state(sensor_id)
@@ -97,26 +95,56 @@ def get_status(sensor_id: str) -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT level, variable, message, timestamp, value
+                SELECT id, level, variable, message, timestamp, value
                 FROM sfa_alerts
                 WHERE sensor_id = %s
                   AND timestamp >= NOW() - INTERVAL '24 hours'
                 ORDER BY timestamp DESC
-                LIMIT 50
             """, (sensor_id,))
             rows = cur.fetchall()
-        alerts = [
-            {
-                "level": lv,
-                "variable": va,
-                "message": msg,
-                "timestamp": _fmt_ts(ts),
-                "value": val
-            }
-            for lv, va, msg, ts, val in rows
-        ]
     finally:
         release_conn(conn)
+
+    # ── Deduplicación de alertas ─────────────────────────────────
+    # Separar alertas de umbral y de tendencia
+    threshold_by_var = {}   # variable → row más reciente (no tendencia)
+    trend_by_var     = {}   # variable → row más reciente (tendencia)
+
+    for row in rows:
+        rid, level, variable, message, ts, val = row
+        is_trend = '[tendencia]' in (message or '')
+
+        if is_trend:
+            # Guardar solo la más reciente por variable (rows ya viene DESC)
+            if variable not in trend_by_var:
+                trend_by_var[variable] = {
+                    "id":        rid,
+                    "level":     level,
+                    "variable":  variable,
+                    "message":   message,
+                    "timestamp": _fmt_ts(ts),
+                    "value":     val,
+                    "is_trend":  True,
+                }
+        else:
+            # Guardar solo la más reciente por variable
+            if variable not in threshold_by_var:
+                threshold_by_var[variable] = {
+                    "id":        rid,
+                    "level":     level,
+                    "variable":  variable,
+                    "message":   message,
+                    "timestamp": _fmt_ts(ts),
+                    "value":     val,
+                    "is_trend":  False,
+                }
+
+    # Lista final: primero umbrales, luego tendencias
+    # Las tendencias se muestran en la tabla pero NO cuentan para active_alerts
+    threshold_alerts = list(threshold_by_var.values())
+    trend_alerts     = list(trend_by_var.values())
+
+    all_alerts = threshold_alerts + trend_alerts
 
     return {
         "mode":             "postgresql",
@@ -126,8 +154,9 @@ def get_status(sensor_id: str) -> dict:
         "i_generada":       latest.get("i_generada"),
         "battery_percent":  soc_pct,
         "solar_generating": (latest.get("radiacion") or 0) > 50,
-        "active_alerts":    len(alerts),
-        "alerts":           alerts,
+        # active_alerts cuenta solo alertas de umbral (no tendencias)
+        "active_alerts":    len(threshold_alerts),
+        "alerts":           all_alerts,
         "variables_meta":   SFA_VARIABLES,
     }
 
@@ -265,23 +294,24 @@ def evaluate_alerts(sensor_id: str) -> list[dict]:
                     value <= rule["threshold"] if rule["operator"] == "<="
                     else value >= rule["threshold"]
                 )
-                
+
                 if not fired:
                     continue
 
                 cur.execute("""
                     SELECT id, value FROM sfa_alerts
-                    WHERE sensor_id = %s 
+                    WHERE sensor_id = %s
                       AND variable  = %s
+                      AND message NOT LIKE '%%[tendencia]%%'
                       AND timestamp >= NOW() - INTERVAL '1 hour'
                     ORDER BY timestamp DESC LIMIT 1
                 """, (sensor_id, rule["variable"]))
-                
+
                 existing_alert = cur.fetchone()
 
                 if existing_alert:
                     old_id, old_value = existing_alert
-                    if abs(value - old_value) < 0.001: 
+                    if abs(value - old_value) < 0.001:
                         continue
                     else:
                         cur.execute("DELETE FROM sfa_alerts WHERE id = %s", (old_id,))
@@ -349,9 +379,8 @@ def clear_alerts(sensor_id: str) -> int:
 # HELPERS INTERNOS EXTENDIDOS
 # ==========================================
 def _bucket_interval(hours: int) -> str | None:
-    """Devuelve el intervalo de agrupación según la ventana solicitada."""
     if hours <= 3:
-        return None          # Sin agrupación, puntos crudos
+        return None
     elif hours <= 24:
         return "5 minutes"
     elif hours <= 72:
@@ -393,12 +422,12 @@ def get_history_aggregated(sensor_id: str, variable: str, hours: int = 24) -> di
                 cur.execute("""
                     SELECT
                         date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
-                        AVG(value)                  AS avg_val,
-                        AVG(value)                  AS avg_val2,
-                        MIN(value)                  AS min_val,
-                        MAX(value)                  AS max_val,
-                        STDDEV(value)               AS stddev_val,
-                        COUNT(*)                    AS count_val
+                        AVG(value)    AS avg_val,
+                        AVG(value)    AS avg_val2,
+                        MIN(value)    AS min_val,
+                        MAX(value)    AS max_val,
+                        STDDEV(value) AS stddev_val,
+                        COUNT(*)      AS count_val
                     FROM sfa_readings
                     WHERE sensor_id = %s
                       AND variable  = %s
@@ -423,13 +452,13 @@ def get_history_aggregated(sensor_id: str, variable: str, hours: int = 24) -> di
         ]
 
         return {
-            "sensor_id":  sensor_id,
-            "variable":   variable,
-            "hours":      hours,
-            "interval":   interval or "raw",
-            "unit":       SFA_VARIABLES[variable]["unit"],
-            "label":      SFA_VARIABLES[variable]["label"],
-            "points":     points,
+            "sensor_id": sensor_id,
+            "variable":  variable,
+            "hours":     hours,
+            "interval":  interval or "raw",
+            "unit":      SFA_VARIABLES[variable]["unit"],
+            "label":     SFA_VARIABLES[variable]["label"],
+            "points":    points,
         }
     finally:
         release_conn(conn)
@@ -624,7 +653,7 @@ def get_sensor_connectivity(sensor_ids: list[str]) -> list[dict]:
             """, (sensor_ids,))
             rows = cur.fetchall()
 
-        result = []
+        result   = []
         seen_ids = set()
         for sensor_id, last_seen, seconds_ago in rows:
             seen_ids.add(sensor_id)
@@ -633,8 +662,7 @@ def get_sensor_connectivity(sensor_ids: list[str]) -> list[dict]:
                 "last_seen":   _fmt_ts(last_seen),
                 "seconds_ago": int(seconds_ago) if seconds_ago is not None else None,
                 "connected":   seconds_ago is not None and seconds_ago < 300,
-                "status":      "online" if (seconds_ago is not None and seconds_ago < 300)
-                               else "offline",
+                "status":      "online" if (seconds_ago is not None and seconds_ago < 300) else "offline",
             })
 
         for sid in sensor_ids:
@@ -662,7 +690,7 @@ def get_alerts_history(
     level: str | None = None,
     variable: str | None = None,
 ) -> dict:
-    offset = (page - 1) * limit
+    offset  = (page - 1) * limit
     filters = ["sensor_id = %s"]
     params  = [sensor_id]
 
@@ -674,7 +702,7 @@ def get_alerts_history(
         params.append(variable)
 
     where = " AND ".join(filters)
-    conn = get_conn()
+    conn  = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -731,7 +759,7 @@ def get_multi_sensor_history(
         return None
 
     interval = _bucket_interval(hours)
-    conn = get_conn()
+    conn     = get_conn()
     try:
         with conn.cursor() as cur:
             if interval is None:
@@ -748,7 +776,7 @@ def get_multi_sensor_history(
                     SELECT
                         sensor_id,
                         date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
-                        AVG(value)                AS avg_val
+                        AVG(value) AS avg_val
                     FROM sfa_readings
                     WHERE sensor_id = ANY(%s)
                       AND variable  = %s
