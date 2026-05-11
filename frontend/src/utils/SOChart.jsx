@@ -1,7 +1,8 @@
 /**
- * SOChart.jsx  (v2.3 — Rango de tiempo seleccionable)
+ * SOChart.jsx  (v2.4 — SOC% en tooltip al hacer hover)
  * -----------------------------------------
- * Novedad: Selector dinámico de horas en la interfaz.
+ * Novedad: el tooltip muestra voltaje Y % SOC estimado (curva OCV)
+ * en cada punto de la gráfica al pasar el ratón.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -19,10 +20,40 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler, zoomPlugin);
 
+// ── Curva OCV→SOC (igual que en el backend) ──────────────────
+const OCV_TABLE = [
+  [10.50,  0.0],
+  [11.00,  5.0],
+  [11.50, 10.0],
+  [11.80, 20.0],
+  [12.00, 30.0],
+  [12.20, 50.0],
+  [12.40, 60.0],
+  [12.60, 75.0],
+  [12.80, 85.0],
+  [13.00, 95.0],
+  [13.20, 100.0],
+];
+
+const ocvToSoc = (voltage) => {
+  if (voltage <= OCV_TABLE[0][0]) return OCV_TABLE[0][1];
+  if (voltage >= OCV_TABLE[OCV_TABLE.length - 1][0]) return OCV_TABLE[OCV_TABLE.length - 1][1];
+  for (let i = 0; i < OCV_TABLE.length - 1; i++) {
+    const [v0, s0] = OCV_TABLE[i];
+    const [v1, s1] = OCV_TABLE[i + 1];
+    if (v0 <= voltage && voltage <= v1) {
+      const t = (voltage - v0) / (v1 - v0);
+      return Math.round((s0 + t * (s1 - s0)) * 10) / 10;
+    }
+  }
+  return 50.0;
+};
+
+// ── Helpers ───────────────────────────────────────────────────
 const exportCSV = (voltagePoints, sensorId, hours) => {
   if (!voltagePoints?.length) return;
-  const header = 'timestamp,voltage_v\n';
-  const rows   = voltagePoints.map(p => `${p.timestamp},${p.value}`).join('\n');
+  const header = 'timestamp,voltage_v,soc_pct\n';
+  const rows   = voltagePoints.map(p => `${p.timestamp},${p.value},${ocvToSoc(p.value)}`).join('\n');
   const blob   = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
@@ -45,10 +76,10 @@ const MethodBadge = ({ method, hoursSince }) => {
   return null;
 };
 
+// ── Componente principal ──────────────────────────────────────
 const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)' }) => {
-  // 1. Añadimos estado para controlar las horas dinámicamente
   const [selectedHours, setSelectedHours] = useState(hours);
-  
+
   const [voltagePoints, setVoltagePoints] = useState([]);
   const [socState,      setSocState]      = useState(null);
   const [loading,       setLoading]       = useState(true);
@@ -63,7 +94,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     setSocError(null);
 
     const [voltResult, socResult] = await Promise.allSettled([
-      api.getSFAHistory(sensorId, 'v_bateria', selectedHours), // Usamos selectedHours
+      api.getSFAHistory(sensorId, 'v_bateria', null, null, selectedHours),
       api.getSocCurrent(sensorId),
     ]);
 
@@ -84,7 +115,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     }
 
     setLoading(false);
-  }, [sensorId, selectedHours]); // Dependencia actualizada a selectedHours
+  }, [sensorId, selectedHours]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
 
@@ -139,25 +170,31 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     </div>
   );
 
-  // Pasamos selectedHours al formato del eje X
-  const labels     = voltagePoints.map(p => fmtAxis(p.timestamp, selectedHours));
-  const voltages   = voltagePoints.map(p => p.value);
-  const currentSOC = socState?.soc_pct ?? null;
+  const labels      = voltagePoints.map(p => fmtAxis(p.timestamp, selectedHours));
+  const voltages    = voltagePoints.map(p => p.value);
+  // SOC estimado por OCV en cada punto histórico
+  const socEstimates = voltagePoints.map(p => ocvToSoc(p.value));
+
+  const currentSOC  = socState?.soc_pct ?? null;
   const ahRemaining = currentSOC != null ? ((currentSOC / 100) * 7.2).toFixed(2) : null;
 
   const chartData = {
     labels,
-    datasets: [{
-      label:           'Tensión (V)',
-      data:            voltages,
-      borderColor:     '#10B981',
-      backgroundColor: 'rgba(16,185,129,0.08)',
-      borderWidth:     2,
-      pointRadius:     0,
-      tension:         0.4,
-      fill:            true,
-      yAxisID:         'yVolt',
-    }],
+    datasets: [
+      {
+        label:           'Tensión (V)',
+        data:            voltages,
+        borderColor:     '#10B981',
+        backgroundColor: 'rgba(16,185,129,0.08)',
+        borderWidth:     2,
+        pointRadius:     0,
+        tension:         0.4,
+        fill:            true,
+        yAxisID:         'yVolt',
+        // Guardamos SOC para usarlo en el tooltip
+        socData:         socEstimates,
+      },
+    ],
   };
 
   const options = {
@@ -166,33 +203,62 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: false },
-      zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } },
+      zoom: {
+        pan:  { enabled: true, mode: 'x' },
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+      },
       tooltip: {
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        titleColor: '#1f2937', bodyColor: '#1f2937', borderColor: '#e5e7eb', borderWidth: 1, padding: 10,
-        callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}V` }
-      }
+        backgroundColor: 'rgba(255,255,255,0.97)',
+        titleColor:      '#1f2937',
+        bodyColor:       '#374151',
+        borderColor:     '#e5e7eb',
+        borderWidth:     1,
+        padding:         12,
+        cornerRadius:    10,
+        displayColors:   false,
+        callbacks: {
+          title: (items) => items[0]?.label ?? '',
+          label: (ctx) => {
+            const voltage = ctx.parsed.y;
+            const soc     = ctx.dataset.socData?.[ctx.dataIndex];
+            return [
+              `  Tensión:  ${voltage?.toFixed(3)} V`,
+              `  SOC est.: ${soc != null ? soc + ' %' : '—'}`,
+            ];
+          },
+        },
+      },
     },
     scales: {
-      x: { ticks: { maxTicksLimit: 7, font: { size: 10 }, color: '#9ca3af' }, grid: { display: false } },
-      yVolt: { type: 'linear', position: 'left', min: 10, max: 16, ticks: { font: { size: 10 }, color: '#10b981', callback: v => `${v}V` }, grid: { color: '#f3f4f6' } },
+      x: {
+        ticks:  { maxTicksLimit: 7, font: { size: 10 }, color: '#9ca3af' },
+        grid:   { display: false },
+      },
+      yVolt: {
+        type:     'linear',
+        position: 'left',
+        min:      10,
+        max:      16,
+        ticks:    { font: { size: 10 }, color: '#10b981', callback: v => `${v} V` },
+        grid:     { color: '#f3f4f6' },
+      },
     },
   };
 
   return (
     <div className="group bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all flex flex-col gap-4">
 
-      {/* Cabecera */}
+      {/* ── Cabecera ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] flex-shrink-0" />
           <span className="font-bold text-slate-800 text-sm">{title}</span>
-          
-          {/* Selector de Tiempo Dinámico */}
+
+          {/* Selector de tiempo */}
           <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded">
             <select
               value={selectedHours}
-              onChange={(e) => setSelectedHours(Number(e.target.value))}
+              onChange={e => setSelectedHours(Number(e.target.value))}
               className="bg-transparent text-[10px] font-bold text-slate-600 uppercase outline-none cursor-pointer py-0.5 pl-2 pr-1"
             >
               <option value={6}>Últimas 6h</option>
@@ -209,39 +275,49 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
 
           <MethodBadge method={socState?.method} hoursSince={socState?.hours_since_calib} />
         </div>
+
         <div className="flex items-center gap-1">
-          <button onClick={handleCompute} disabled={calibrating}
+          <button
+            onClick={handleCompute}
+            disabled={calibrating}
             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50"
-            title="Recalcular SOC">
+            title="Recalcular SOC"
+          >
             <RefreshCw size={14} className={calibrating ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => chartRef.current?.resetZoom()}
+          <button
+            onClick={() => chartRef.current?.resetZoom()}
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-            title="Restablecer zoom">
+            title="Restablecer zoom"
+          >
             <ZoomOut size={14} />
           </button>
-          {/* Al descargar CSV, le pasamos las horas que el usuario haya seleccionado */}
-          <button onClick={() => exportCSV(voltagePoints, sensorId, selectedHours)}
+          <button
+            onClick={() => exportCSV(voltagePoints, sensorId, selectedHours)}
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-            title="Exportar CSV">
+            title="Exportar CSV (incluye SOC estimado)"
+          >
             <Download size={14} />
           </button>
         </div>
       </div>
 
-      {/* Aviso si /soc/current falla */}
+      {/* ── Aviso SOC no disponible ── */}
       {socError && (
         <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
           <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-amber-700">
             <p className="font-bold mb-0.5">SOC no disponible (endpoint /soc/current)</p>
             <p className="font-mono text-[10px] text-amber-600">{socError}</p>
-            <p className="mt-1 text-amber-600">Despliega <code>soc_routes.py</code> en Railway y asegúrate de que <code>app.include_router(soc_router)</code> está en main.py.</p>
+            <p className="mt-1 text-amber-600">
+              Despliega <code>soc_routes.py</code> en Railway y asegúrate de que{' '}
+              <code>app.include_router(soc_router)</code> está en main.py.
+            </p>
           </div>
         </div>
       )}
 
-      {/* SOC + barra */}
+      {/* ── SOC actual + barra ── */}
       {currentSOC != null && (
         <div className="flex items-center gap-5">
           <div className="flex flex-col items-center min-w-[4.5rem]">
@@ -265,14 +341,19 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
               <span>Tensión: <strong className="text-slate-700">{voltages.at(-1) ?? '—'} V</strong></span>
               <span>Capacidad: <strong className="text-slate-700">7.2 Ah</strong></span>
               {ahRemaining && (
-                <span>Carga restante: <strong className={currentSOC > 20 ? 'text-emerald-600' : 'text-rose-600'}>~{ahRemaining} Ah</strong></span>
+                <span>
+                  Carga restante:{' '}
+                  <strong className={currentSOC > 20 ? 'text-emerald-600' : 'text-rose-600'}>
+                    ~{ahRemaining} Ah
+                  </strong>
+                </span>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Mensaje de calibración */}
+      {/* ── Mensaje de calibración ── */}
       {calibMsg && (
         <div className={`text-xs font-semibold px-4 py-2 rounded-xl flex items-center gap-2
           ${calibMsg.type === 'ok'   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -283,7 +364,7 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
         </div>
       )}
 
-      {/* Panel OCV */}
+      {/* ── Panel OCV ── */}
       {!socError && (
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="text-xs text-slate-500 flex-1">
@@ -295,27 +376,36 @@ const SOCChart = ({ sensorId = 's1', hours = 24, title = 'Estado de carga (SOC)'
                 <strong className="text-slate-600">
                   {new Date(socState.last_calibrated).toLocaleString('es-ES', {
                     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-                    timeZone: 'UTC'
+                    timeZone: 'UTC',
                   })}
                 </strong>
                 {socState.calibration_soc != null && ` → ${socState.calibration_soc}%`}
               </p>
             )}
           </div>
-          <button onClick={handleCalibrate} disabled={calibrating}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 text-xs font-bold text-slate-600 hover:text-indigo-700 rounded-xl transition-all disabled:opacity-50 whitespace-nowrap">
-            {calibrating ? <><Loader2 size={13} className="animate-spin" /> Calibrando...</> : <><CheckCircle2 size={13} /> Calibrar OCV</>}
+          <button
+            onClick={handleCalibrate}
+            disabled={calibrating}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 text-xs font-bold text-slate-600 hover:text-indigo-700 rounded-xl transition-all disabled:opacity-50 whitespace-nowrap"
+          >
+            {calibrating
+              ? <><Loader2 size={13} className="animate-spin" /> Calibrando...</>
+              : <><CheckCircle2 size={13} /> Calibrar OCV</>}
           </button>
         </div>
       )}
 
-      {/* Gráfica tensión */}
+      {/* ── Gráfica ── */}
       <div className="h-44 w-full">
         {voltagePoints.length > 0 ? (
-          <Line ref={chartRef} data={chartData} options={options} />
+          <>
+            <p className="text-[10px] text-slate-400 font-medium mb-1 text-right pr-1">
+              Pasa el cursor para ver tensión y SOC estimado
+            </p>
+            <Line ref={chartRef} data={chartData} options={options} />
+          </>
         ) : (
           <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-            {/* Mensaje vacío refleja las horas seleccionadas */}
             <p className="text-sm">Sin datos de tensión en las últimas {selectedHours}h</p>
           </div>
         )}
