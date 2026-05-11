@@ -349,6 +349,15 @@ const CompareView = ({ sensorId = 's1' }) => {
     interaction: { mode: 'index', intersect: false },
     animation: { duration: 300 },
     plugins: {
+      tooltip: {
+        enabled: true,
+        mode: 'index',   // Fuerza a que el tooltip muestre todos los datasets del índice
+        intersect: false,
+        // Opcional: mejorar el diseño del tooltip
+        padding: 10,
+        bodySpacing: 5,
+        itemSort: (a, b) => b.raw - a.raw
+      },
       legend: {
         display: true,
         position: 'top',
@@ -459,6 +468,8 @@ const CompareView = ({ sensorId = 's1' }) => {
               { label: '24h',  h: 24  },
               { label: '48h',  h: 48  },
               { label: '1sem', h: 168 },
+              { label: '2sem', h: 336 },
+              { label: '1mes', h: 720 },
             ].map(p => (
               <button key={p.h} onClick={() => applyPreset(p.h)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
