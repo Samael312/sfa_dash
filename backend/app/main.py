@@ -333,17 +333,24 @@ def endpoint_latest(sensor_id: str = Query(...)):
 def endpoint_history(
     sensor_id: str = Query(...),
     variable:  str = Query(...),
-    hours:     int = Query(24, ge=1, le=720),
+    start:     Optional[str] = Query(None), # Nuevo
+    end:       Optional[str] = Query(None), # Nuevo
+    hours:     int = Query(24, ge=1, le=8760), # Aumentado el límite a 1 año (8760h)
 ):
     try:
-        points = get_history(sensor_id, variable, hours)
+        # Pasamos los nuevos parámetros start y end
+        points = get_history(sensor_id, variable, start, end, hours)
+        
         if points is None:
             raise HTTPException(status_code=404, detail=f"Variable '{variable}' no reconocida.")
-        if not points:
-            raise HTTPException(status_code=503, detail="Sin datos en la ventana solicitada.")
-        return {"sensor_id": sensor_id, "variable": variable, "hours": hours, "points": points}
-    except HTTPException:
-        raise
+            
+        return {
+            "sensor_id": sensor_id, 
+            "variable": variable, 
+            "start": start, 
+            "end": end, 
+            "points": points
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

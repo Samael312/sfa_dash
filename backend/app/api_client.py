@@ -57,21 +57,39 @@ def get_latest(sensor_id: str) -> dict:
         release_conn(conn)
 
 
-def get_history(sensor_id: str, variable: str, hours: int = 24) -> list[dict] | None:
+def get_history(sensor_id: str, variable: str, start: str = None, end: str = None, hours: int = 24):
     if variable not in SFA_VARIABLES:
         return None
+        
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT timestamp, value
-                FROM sfa_readings
-                WHERE sensor_id = %s
-                  AND variable  = %s
-                  AND timestamp >= NOW() - INTERVAL '%s hours'
-                ORDER BY timestamp ASC
-            """, (sensor_id, variable, hours))
+            if start and end:
+                # Búsqueda por rango de fechas exacto
+                query = """
+                    SELECT timestamp, value 
+                    FROM sfa_readings 
+                    WHERE sensor_id = %s 
+                      AND variable = %s 
+                      AND timestamp BETWEEN %s AND %s 
+                    ORDER BY timestamp ASC
+                """
+                params = (sensor_id, variable, start, end)
+            else:
+                # Búsqueda por últimas X horas (comportamiento original)
+                query = """
+                    SELECT timestamp, value 
+                    FROM sfa_readings 
+                    WHERE sensor_id = %s 
+                      AND variable = %s 
+                      AND timestamp >= NOW() - INTERVAL '1 hour' * %s 
+                    ORDER BY timestamp ASC
+                """
+                params = (sensor_id, variable, hours)
+            
+            cur.execute(query, params)
             rows = cur.fetchall()
+            
         return [{"timestamp": _fmt_ts(ts), "value": value} for ts, value in rows]
     finally:
         release_conn(conn)

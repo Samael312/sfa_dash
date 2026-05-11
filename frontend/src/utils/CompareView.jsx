@@ -263,16 +263,13 @@ const CompareView = ({ sensorId = 's1' }) => {
     try {
       const results = await Promise.all(
         [...selected].map(key =>
-          api.getSFAHistory(sensorId, key, hours).catch(() => null)
+          api.getSFAHistory(sensorId, key, startDate.toISOString(), endDate.toISOString())
+          .catch(() => null)
         )
       );
       const map = {};
-      [...selected].forEach((key, i) => {
-        const raw = results[i]?.points ?? [];
-        map[key]  = raw.filter(p => {
-          const ts = new Date(p.timestamp);
-          return ts >= startDate && ts <= endDate;
-        });
+    [...selected].forEach((key, i) => {
+      map[key] = results[i]?.points ?? [];
       });
       setData(map);
       setHasLoaded(true);

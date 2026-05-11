@@ -68,12 +68,18 @@ export const api = {
     return res.data;
   },
 
-  getSFAHistory: async (sensorId = 's1', variable, hours = 24) => {
-    const res = await authAxios.get(`${API_BASE}/history`, {
-      params: { sensor_id: sensorId, variable, hours }
-    });
-    return res.data;
-  },
+ getSFAHistory: async (sensorId = 's1', variable, start, end, hours = 24) => {
+  const res = await authAxios.get(`${API_BASE}/history`, {
+    params: { 
+      sensor_id: sensorId, 
+      variable, 
+      start, 
+      end, 
+      hours 
+    }
+  });
+  return res.data;
+},
 
   getSFAStatus: async (sensorId = 's1') => {
     const res = await authAxios.get(`${API_BASE}/status`, { params: { sensor_id: sensorId } });
