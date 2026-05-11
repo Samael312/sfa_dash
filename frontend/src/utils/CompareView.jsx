@@ -3,17 +3,10 @@
  * ---------------
  * Panel de comparación de variables en un rango de tiempo específico.
  *
- * Funcionalidades:
- *  - Selector de rango libre (datetime-local) + presets rápidos
- *  - Selección de variables con toggle
- *  - Modo normalizado (0-100%) o valores reales
- *  - Zoom / pan con chartjs-plugin-zoom
- *  - Pantalla completa (Fullscreen API)
- *  - Descarga de la gráfica como PNG con leyenda integrada
- *  - Tabla de estadísticas por variable
- *  - Exportación CSV
- *
- * Ubicación: frontend/src/utils/CompareView.jsx
+ * Cambios:
+ *  - Selectores de fecha simples (dropdowns) en lugar de datetime-local nativo
+ *  - La gráfica SOLO se genera al pulsar "Generar gráfica" (no en tiempo real)
+ *  - Selección de variables sin efecto inmediato en la gráfica
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -26,7 +19,7 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import {
   GitCompare, RefreshCw, ZoomOut, Download, Maximize2, Minimize2,
   AlertCircle, Loader2, X, CheckSquare, Square,
-  Calendar, Clock, TrendingUp, Image
+  TrendingUp, Image
 } from 'lucide-react';
 import { api } from '../services/api';
 import { fmtAxis } from '../utils/formatTimestamp';
@@ -48,22 +41,100 @@ const VARIABLES = [
   { key: 'temp_bat',   label: 'Temp. batería',   unit: '°C',   color: '#F97316', yMin: 10,  yMax: 60   },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────
-const toInputValue = (date) => {
-  if (!date) return '';
-  const d   = new Date(date);
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-const fromInputValue = (val) => val ? new Date(val) : null;
-const hoursBetween   = (s, e) => !s || !e ? 24 : Math.max(1, Math.round(Math.abs(e - s) / 36e5));
-
+// ── Helpers de fecha ─────────────────────────────────────────
 const normalize = (value, min, max) => {
   if (max === min) return 50;
   return ((value - min) / (max - min)) * 100;
 };
 
-// ── Exportar CSV ─────────────────────────────────────────────
+const hoursBetween = (s, e) => !s || !e ? 24 : Math.max(1, Math.round(Math.abs(e - s) / 36e5));
+
+/** Devuelve { year, month, day, hour } en UTC a partir de un Date */
+const dateToFields = (date) => {
+  if (!date) return { year: 2025, month: 1, day: 1, hour: 0 };
+  return {
+    year:  date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day:   date.getUTCDate(),
+    hour:  date.getUTCHours(),
+  };
+};
+
+/** Construye un Date UTC a partir de campos */
+const fieldsToDate = ({ year, month, day, hour }) =>
+  new Date(Date.UTC(year, month - 1, day, hour, 0, 0));
+
+/** Días del mes */
+const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+// ── Componente selector de fecha ─────────────────────────────
+const DatePicker = ({ label, value, onChange }) => {
+  const fields = dateToFields(value);
+
+  const set = (key, val) => {
+    const next = { ...fields, [key]: Number(val) };
+    // Ajustar día si sobrepasa el límite del mes
+    const maxDay = daysInMonth(next.year, next.month);
+    if (next.day > maxDay) next.day = maxDay;
+    onChange(fieldsToDate(next));
+  };
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
+  const months = [
+    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+  ];
+  const days = Array.from({ length: daysInMonth(fields.year, fields.month) }, (_, i) => i + 1);
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+
+  const selectCls = `
+    bg-white border border-slate-200 rounded-lg text-sm text-slate-700 font-medium
+    focus:outline-none focus:ring-2 focus:ring-indigo-400/40 focus:border-indigo-400
+    cursor-pointer transition-all px-2 py-1.5
+  `;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+      <div className="flex items-center gap-1 flex-wrap">
+        {/* Día */}
+        <select value={fields.day} onChange={e => set('day', e.target.value)} className={selectCls}>
+          {days.map(d => (
+            <option key={d} value={d}>{String(d).padStart(2, '0')}</option>
+          ))}
+        </select>
+
+        {/* Mes */}
+        <select value={fields.month} onChange={e => set('month', e.target.value)} className={selectCls}>
+          {months.map((m, i) => (
+            <option key={i + 1} value={i + 1}>{m}</option>
+          ))}
+        </select>
+
+        {/* Año */}
+        <select value={fields.year} onChange={e => set('year', e.target.value)} className={selectCls}>
+          {years.map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+
+        <span className="text-slate-300 font-light mx-0.5">–</span>
+
+        {/* Hora */}
+        <select value={fields.hour} onChange={e => set('hour', e.target.value)} className={selectCls}>
+          {hours.map(h => (
+            <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+          ))}
+        </select>
+        <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">UTC</span>
+      </div>
+    </div>
+  );
+};
+
+// ── Export CSV ────────────────────────────────────────────────
 const exportCSV = (datasets, labels, sensorId) => {
   if (!datasets.length) return;
   const headers = ['timestamp', ...datasets.map(d => d.labelClean)].join(',');
@@ -78,67 +149,47 @@ const exportCSV = (datasets, labels, sensorId) => {
   URL.revokeObjectURL(url);
 };
 
+// ── Export PNG ────────────────────────────────────────────────
 const downloadPNG = (chartRef, datasets, startDate, endDate, sensorId, viewMode) => {
   if (!chartRef.current) return;
-
   const chartCanvas = chartRef.current.canvas;
-  const PADDING     = 20;
-  const ROW_H       = 26; // Alto de cada fila de la tabla
-  const TABLE_H     = 50 + (datasets.length * ROW_H); // Espacio total para la tabla
-
+  const PADDING = 20;
+  const ROW_H   = 26;
+  const TABLE_H = 50 + (datasets.length * ROW_H);
   const canvas  = document.createElement('canvas');
-  canvas.width  = chartCanvas.width  + PADDING * 2;
-  // Alto total = Padding superior + espacio título (50) + gráfica + espacio tabla + padding inferior (30)
-  canvas.height = PADDING + 50 + chartCanvas.height + TABLE_H + 30; 
+  canvas.width  = chartCanvas.width + PADDING * 2;
+  canvas.height = PADDING + 50 + chartCanvas.height + TABLE_H + 30;
   const ctx     = canvas.getContext('2d');
 
-  // 1. Fondo blanco
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 2. Título
   ctx.fillStyle = '#0f172a';
   ctx.font      = 'bold 16px system-ui, sans-serif';
   ctx.textAlign = 'left';
-  const title   = `Comparación de variables — ${sensorId}`;
-  ctx.fillText(title, PADDING, PADDING + 16);
+  ctx.fillText(`Comparación de variables — ${sensorId}`, PADDING, PADDING + 16);
 
-  // 3. Subtítulo (rango y modo)
   ctx.fillStyle = '#64748b';
   ctx.font      = '12px system-ui, sans-serif';
-  const rangeStr = `${startDate?.toLocaleString('es-ES', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} → ${endDate?.toLocaleString('es-ES', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}  ·  ${viewMode === 'normalized' ? 'Normalizado 0–100%' : 'Valores reales'}`;
+  const rangeStr = `${startDate?.toLocaleString('es-ES', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'UTC' })} → ${endDate?.toLocaleString('es-ES', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'UTC' })}  ·  ${viewMode === 'normalized' ? 'Normalizado 0–100%' : 'Valores reales'}`;
   ctx.fillText(rangeStr, PADDING, PADDING + 36);
 
-  // 4. Dibujar la gráfica
   ctx.drawImage(chartCanvas, PADDING, PADDING + 50);
 
-  // 5. Tabla de estadísticas
-  const tableY0 = PADDING + 50 + chartCanvas.height + 30; // Posición Y de inicio de la tabla
+  const tableY0 = PADDING + 50 + chartCanvas.height + 30;
   const w = canvas.width - PADDING * 2;
-  
-  // Coordenadas X para las columnas (proporcionales al ancho)
-  const colX = {
-    var:  PADDING,
-    min:  PADDING + w * 0.45,
-    max:  PADDING + w * 0.60,
-    avg:  PADDING + w * 0.75,
-    last: PADDING + w * 0.90
-  };
+  const colX = { var: PADDING, min: PADDING + w * 0.45, max: PADDING + w * 0.60, avg: PADDING + w * 0.75, last: PADDING + w * 0.90 };
 
-  // 5.1 Cabecera de la tabla
   ctx.fillStyle = '#94a3b8';
   ctx.font      = 'bold 11px system-ui, sans-serif';
-  
   ctx.textAlign = 'left';
   ctx.fillText('VARIABLE', colX.var, tableY0);
-  
   ctx.textAlign = 'right';
   ctx.fillText('MÍN', colX.min, tableY0);
   ctx.fillText('MÁX', colX.max, tableY0);
   ctx.fillText('MEDIA', colX.avg, tableY0);
   ctx.fillText('ÚLTIMO', colX.last, tableY0);
 
-  // Línea separadora debajo de la cabecera
   ctx.beginPath();
   ctx.moveTo(PADDING, tableY0 + 10);
   ctx.lineTo(canvas.width - PADDING, tableY0 + 10);
@@ -146,141 +197,112 @@ const downloadPNG = (chartRef, datasets, startDate, endDate, sensorId, viewMode)
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // 5.2 Filas de datos
   datasets.forEach((ds, i) => {
     const y = tableY0 + 32 + (i * ROW_H);
-
-    // Punto de color
     ctx.beginPath();
     ctx.arc(colX.var + 6, y - 4, 5, 0, Math.PI * 2);
     ctx.fillStyle = ds.borderColor;
     ctx.fill();
-
-    // Nombre de variable
     ctx.fillStyle = '#334155';
     ctx.font      = 'bold 12px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    // Limpiamos el texto para que no salga la unidad en el nombre si ya la vamos a pintar luego
-    const varName = ds.labelClean.split(' (')[0]; 
-    ctx.fillText(varName, colX.var + 18, y);
+    ctx.fillText(ds.labelClean.split(' (')[0], colX.var + 18, y);
 
-    // Extraer unidad de "Label (Unit)" y calcular datos
-    const raw = ds.rawData?.filter(v => v != null) ?? [];
+    const raw  = ds.rawData?.filter(v => v != null) ?? [];
     const unitMatch = ds.labelClean.match(/\((.+)\)/);
     const unit = unitMatch ? unitMatch[1] : '';
-    
     const min  = raw.length ? Math.min(...raw).toFixed(2) : '—';
     const max  = raw.length ? Math.max(...raw).toFixed(2) : '—';
     const avg  = raw.length ? (raw.reduce((a, b) => a + b, 0) / raw.length).toFixed(2) : '—';
     const last = raw.length ? raw[raw.length - 1].toFixed(2) : '—';
 
-    // Imprimir valores
     ctx.font      = '12px monospace';
     ctx.textAlign = 'right';
-    
-    // Función auxiliar para pintar valor + unidad con distinto color
     const drawValue = (val, x) => {
       ctx.fillStyle = '#475569';
       const textWidth = ctx.measureText(` ${unit}`).width;
       ctx.fillText(val, x - textWidth, y);
-      ctx.fillStyle = '#94a3b8'; // Unidad en gris más clarito
+      ctx.fillStyle = '#94a3b8';
       ctx.fillText(` ${unit}`, x, y);
     };
-
     drawValue(min, colX.min);
     drawValue(max, colX.max);
     drawValue(avg, colX.avg);
     drawValue(last, colX.last);
   });
 
-  // 6. Pie de página
   ctx.fillStyle  = '#cbd5e1';
   ctx.font       = '10px system-ui, sans-serif';
   ctx.textAlign  = 'right';
   ctx.fillText(`SFA Dashboard · ${new Date().toLocaleString('es-ES')}`, canvas.width - PADDING, canvas.height - 10);
 
-  // 7. Lanzar Descarga
   const link = document.createElement('a');
   link.download = `${sensorId}_comparacion_${Date.now()}.png`;
   link.href     = canvas.toDataURL('image/png');
   link.click();
 };
 
-// ── Componente principal ─────────────────────────────────────
+// ── Presets de tiempo ─────────────────────────────────────────
+const TIME_PRESETS = [
+  { label: '1h',   h: 1   },
+  { label: '3h',   h: 3   },
+  { label: '6h',   h: 6   },
+  { label: '12h',  h: 12  },
+  { label: '24h',  h: 24  },
+  { label: '48h',  h: 48  },
+  { label: '1sem', h: 168 },
+  { label: '2sem', h: 336 },
+  { label: '1mes', h: 720 },
+];
+
+// ── Componente principal ──────────────────────────────────────
 const CompareView = ({ sensorId = 's1' }) => {
   const now    = new Date();
   const sixAgo = new Date(now.getTime() - 6 * 3600 * 1000);
 
-  const [startDate,  setStartDate]  = useState(sixAgo);
-  const [endDate,    setEndDate]    = useState(now);
-  const [startInput, setStartInput] = useState(toInputValue(sixAgo));
-  const [endInput,   setEndInput]   = useState(toInputValue(now));
-
-  const [selected, setSelected] = useState(
+  // Estado del formulario (no dispara carga automática)
+  const [startDate, setStartDate] = useState(sixAgo);
+  const [endDate,   setEndDate]   = useState(now);
+  const [selected,  setSelected]  = useState(
     new Set(['radiacion', 'v_bateria', 'i_generada', 'temp_amb'])
   );
-  const [viewMode,   setViewMode]   = useState('normalized');
-  const [data,       setData]       = useState({});
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState(null);
-  const [hasLoaded,  setHasLoaded]  = useState(false);
+  const [viewMode,  setViewMode]  = useState('normalized');
+
+  // Estado de la gráfica (solo se actualiza al pulsar el botón)
+  const [chartData,      setChartData]      = useState(null);
+  const [chartStart,     setChartStart]     = useState(null);
+  const [chartEnd,       setChartEnd]       = useState(null);
+  const [chartViewMode,  setChartViewMode]  = useState('normalized');
+
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [hasLoaded,    setHasLoaded]    = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const chartRef      = useRef(null);
-  const containerRef  = useRef(null);
+  const chartRef     = useRef(null);
+  const containerRef = useRef(null);
 
-  // ── Fullscreen API ──────────────────────────────────────────
+  // ── Fullscreen ────────────────────────────────────────────
   useEffect(() => {
-    const onFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen?.();
+    else document.exitFullscreen?.();
   };
 
-  // ── Cargar datos ────────────────────────────────────────────
-  const load = useCallback(async () => {
-    if (!startDate || !endDate || startDate >= endDate) {
-      setError('El rango de fechas no es válido. El inicio debe ser anterior al fin.');
-      return;
-    }
-    if (selected.size === 0) {
-      setError('Selecciona al menos una variable.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    const hours = hoursBetween(startDate, endDate);
+  // ── Preset rápido de tiempo ───────────────────────────────
+  const applyPreset = (h) => {
+    const end   = new Date();
+    const start = new Date(end.getTime() - h * 3600 * 1000);
+    setStartDate(start);
+    setEndDate(end);
+  };
 
-    try {
-      const results = await Promise.all(
-        [...selected].map(key =>
-          api.getSFAHistory(sensorId, key, startDate.toISOString(), endDate.toISOString())
-          .catch(() => null)
-        )
-      );
-      const map = {};
-    [...selected].forEach((key, i) => {
-      map[key] = results[i]?.points ?? [];
-      });
-      setData(map);
-      setHasLoaded(true);
-    } catch {
-      setError('Error al cargar los datos. Comprueba la conexión.');
-    } finally {
-      setLoading(false);
-    }
-  }, [sensorId, startDate, endDate, selected]);
-
-  // ── Toggle variable ─────────────────────────────────────────
+  // ── Toggle variable ───────────────────────────────────────
   const toggleVar = (key) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -294,70 +316,93 @@ const CompareView = ({ sensorId = 's1' }) => {
     });
   };
 
-  const handleStartChange = (val) => { setStartInput(val); const d = fromInputValue(val); if (d) setStartDate(d); };
-  const handleEndChange   = (val) => { setEndInput(val);   const d = fromInputValue(val); if (d) setEndDate(d);   };
+  // ── CARGAR DATOS (solo al pulsar el botón) ────────────────
+  const load = useCallback(async () => {
+    if (!startDate || !endDate || startDate >= endDate) {
+      setError('El rango de fechas no es válido. El inicio debe ser anterior al fin.');
+      return;
+    }
+    if (selected.size === 0) {
+      setError('Selecciona al menos una variable.');
+      return;
+    }
 
-  const applyPreset = (h) => {
-    const end   = new Date();
-    const start = new Date(end.getTime() - h * 3600 * 1000);
-    setStartDate(start); setStartInput(toInputValue(start));
-    setEndDate(end);     setEndInput(toInputValue(end));
-  };
+    setLoading(true);
+    setError(null);
 
-  // ── Build chart data ─────────────────────────────────────────
-  const buildChartData = () => {
-    const activeVars = VARIABLES.filter(v => selected.has(v.key) && data[v.key]?.length);
-    if (!activeVars.length) return null;
+    try {
+      const results = await Promise.all(
+        [...selected].map(key =>
+          api.getSFAHistory(sensorId, key, startDate.toISOString(), endDate.toISOString())
+            .catch(() => null)
+        )
+      );
 
-    const allTs = [...new Set(
-      activeVars.flatMap(v => data[v.key].map(p => p.timestamp))
-    )].sort();
+      const rawData = {};
+      [...selected].forEach((key, i) => {
+        rawData[key] = results[i]?.points ?? [];
+      });
 
-    const labels = allTs.map(ts => fmtAxis(ts, hoursBetween(startDate, endDate)));
+      // Construir datos del gráfico
+      const activeVars = VARIABLES.filter(v => selected.has(v.key) && rawData[v.key]?.length);
 
-    const datasets = activeVars.map(v => {
-      const pointMap = Object.fromEntries(data[v.key].map(p => [p.timestamp, p.value]));
-      const rawData  = allTs.map(ts => pointMap[ts] ?? null);
-      const values   = viewMode === 'normalized'
-        ? rawData.map(val => val != null ? normalize(val, v.yMin, v.yMax) : null)
-        : rawData;
+      if (!activeVars.length) {
+        setError('No hay datos en el rango seleccionado. Prueba con un rango más amplio.');
+        setHasLoaded(false);
+        return;
+      }
 
-      return {
-        label:      `${v.label} (${v.unit})`,
-        labelClean: `${v.label} (${v.unit})`,  // para PNG/CSV
-        data:       values,
-        rawData,
-        borderColor:     v.color,
-        backgroundColor: `${v.color}12`,
-        borderWidth:     2,
-        pointRadius:     0,
-        pointHoverRadius: 5,
-        tension:    0.4,
-        fill:       false,
-        spanGaps:   true,
-      };
-    });
+      const hours = hoursBetween(startDate, endDate);
+      const allTs = [...new Set(
+        activeVars.flatMap(v => rawData[v.key].map(p => p.timestamp))
+      )].sort();
 
-    return { labels, datasets };
-  };
+      const labels = allTs.map(ts => fmtAxis(ts, hours));
 
-  const chartData = hasLoaded ? buildChartData() : null;
+      const datasets = activeVars.map(v => {
+        const pointMap = Object.fromEntries(rawData[v.key].map(p => [p.timestamp, p.value]));
+        const raw      = allTs.map(ts => pointMap[ts] ?? null);
+        const values   = viewMode === 'normalized'
+          ? raw.map(val => val != null ? normalize(val, v.yMin, v.yMax) : null)
+          : raw;
 
+        return {
+          label:        `${v.label} (${v.unit})`,
+          labelClean:   `${v.label} (${v.unit})`,
+          data:         values,
+          rawData:      raw,
+          borderColor:     v.color,
+          backgroundColor: `${v.color}12`,
+          borderWidth:     2,
+          pointRadius:     0,
+          pointHoverRadius: 5,
+          tension:     0.4,
+          fill:        false,
+          spanGaps:    true,
+        };
+      });
+
+      // Guardar snapshot del estado activo de la gráfica
+      setChartData({ labels, datasets });
+      setChartStart(startDate);
+      setChartEnd(endDate);
+      setChartViewMode(viewMode);
+      setHasLoaded(true);
+
+    } catch {
+      setError('Error al cargar los datos. Comprueba la conexión.');
+    } finally {
+      setLoading(false);
+    }
+  }, [sensorId, startDate, endDate, selected, viewMode]);
+
+  // ── Opciones del gráfico ──────────────────────────────────
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     animation: { duration: 300 },
     plugins: {
-      tooltip: {
-        enabled: true,
-        mode: 'index',   // Fuerza a que el tooltip muestre todos los datasets del índice
-        intersect: false,
-        // Opcional: mejorar el diseño del tooltip
-        padding: 10,
-        bodySpacing: 5,
-        itemSort: (a, b) => b.raw - a.raw
-      },
       legend: {
         display: true,
         position: 'top',
@@ -378,7 +423,7 @@ const CompareView = ({ sensorId = 's1' }) => {
         usePointStyle:   true,
         callbacks: {
           label: (ctx) => {
-            if (viewMode !== 'normalized') return ` ${ctx.dataset.label}: ${ctx.parsed.y}`;
+            if (chartViewMode !== 'normalized') return ` ${ctx.dataset.label}: ${ctx.parsed.y}`;
             const raw  = ctx.dataset.rawData?.[ctx.dataIndex];
             const unit = ctx.dataset.label.match(/\((.+)\)/)?.[1] ?? '';
             return ` ${ctx.dataset.label.replace(/ \(.+\)/, '')}: ${raw ?? '—'} ${unit}`;
@@ -393,11 +438,11 @@ const CompareView = ({ sensorId = 's1' }) => {
         border: { display: false },
       },
       y: {
-        min: viewMode === 'normalized' ? 0 : undefined,
-        max: viewMode === 'normalized' ? 100 : undefined,
+        min: chartViewMode === 'normalized' ? 0 : undefined,
+        max: chartViewMode === 'normalized' ? 100 : undefined,
         ticks: {
           maxTicksLimit: 6, font: { size: 11 }, color: '#94A3B8',
-          callback: viewMode === 'normalized' ? v => `${v}%` : v => v,
+          callback: chartViewMode === 'normalized' ? v => `${v}%` : v => v,
         },
         grid:   { color: '#F1F5F9', borderDash: [4, 4] },
         border: { display: false },
@@ -422,21 +467,25 @@ const CompareView = ({ sensorId = 's1' }) => {
           </div>
           <div>
             <h3 className="text-base font-bold text-slate-800">Comparador de Variables</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Visualiza múltiples variables en el mismo gráfico</p>
+            <p className="text-xs text-slate-500 mt-0.5">Configura el rango y pulsa "Generar gráfica"</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Modo */}
+          {/* Modo normalizado / real */}
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/50">
-            <button onClick={() => setViewMode('normalized')}
+            <button
+              onClick={() => setViewMode('normalized')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                ${viewMode === 'normalized' ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-800'}`}>
+                ${viewMode === 'normalized' ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-800'}`}
+            >
               Normalizado (%)
             </button>
-            <button onClick={() => setViewMode('raw')}
+            <button
+              onClick={() => setViewMode('raw')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                ${viewMode === 'raw' ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-800'}`}>
+                ${viewMode === 'raw' ? 'bg-white shadow-sm text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-800'}`}
+            >
               Valores reales
             </button>
           </div>
@@ -445,7 +494,8 @@ const CompareView = ({ sensorId = 's1' }) => {
           <button
             onClick={toggleFullscreen}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-slate-200 transition-all"
-            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
+            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+          >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
         </div>
@@ -453,53 +503,29 @@ const CompareView = ({ sensorId = 's1' }) => {
 
       <div className="px-6 flex flex-col gap-5">
 
-        {/* ── SELECTOR DE RANGO ── */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar size={14} className="text-slate-400" />
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Rango de tiempo</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: '1h',   h: 1   },
-              { label: '3h',   h: 3   },
-              { label: '6h',   h: 6   },
-              { label: '12h',  h: 12  },
-              { label: '24h',  h: 24  },
-              { label: '48h',  h: 48  },
-              { label: '1sem', h: 168 },
-              { label: '2sem', h: 336 },
-              { label: '1mes', h: 720 },
-            ].map(p => (
-              <button key={p.h} onClick={() => applyPreset(p.h)}
+        {/* ── PRESETS RÁPIDOS ── */}
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Atajos rápidos</span>
+          <div className="flex flex-wrap gap-1.5">
+            {TIME_PRESETS.map(p => (
+              <button
+                key={p.h}
+                onClick={() => applyPreset(p.h)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                  ${hours === p.h && !loading
+                  ${hours === p.h
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-600'}`}>
+                    : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-600'}`}
+              >
                 {p.label}
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Clock size={10} /> Inicio
-              </label>
-              <input type="datetime-local" value={startInput} onChange={e => handleStartChange(e.target.value)}
-                className="border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700
-                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400
-                  bg-slate-50/50 transition-all" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Clock size={10} /> Fin
-              </label>
-              <input type="datetime-local" value={endInput} onChange={e => handleEndChange(e.target.value)}
-                className="border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700
-                  focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400
-                  bg-slate-50/50 transition-all" />
-            </div>
-          </div>
+        </div>
+
+        {/* ── SELECTOR DE FECHAS ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+          <DatePicker label="Inicio" value={startDate} onChange={setStartDate} />
+          <DatePicker label="Fin"    value={endDate}   onChange={setEndDate}   />
         </div>
 
         {/* ── SELECTOR DE VARIABLES ── */}
@@ -513,13 +539,16 @@ const CompareView = ({ sensorId = 's1' }) => {
             {VARIABLES.map(v => {
               const isSelected = selected.has(v.key);
               return (
-                <button key={v.key} onClick={() => toggleVar(v.key)}
+                <button
+                  key={v.key}
+                  onClick={() => toggleVar(v.key)}
                   className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all text-left
                     ${isSelected ? 'border-transparent text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
-                  style={isSelected ? { backgroundColor: v.color } : {}}>
+                  style={isSelected ? { backgroundColor: v.color } : {}}
+                >
                   {isSelected
                     ? <CheckSquare size={14} className="flex-shrink-0" />
-                    : <Square size={14} className="flex-shrink-0 text-slate-300" />}
+                    : <Square      size={14} className="flex-shrink-0 text-slate-300" />}
                   <span className="leading-tight truncate">{v.label}</span>
                 </button>
               );
@@ -527,11 +556,15 @@ const CompareView = ({ sensorId = 's1' }) => {
           </div>
         </div>
 
-        {/* ── BOTÓN CARGAR ── */}
-        <button onClick={load} disabled={loading || selected.size === 0}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600
-            hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl
-            shadow-sm shadow-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto self-start">
+        {/* ── BOTÓN PRINCIPAL ── */}
+        <button
+          onClick={load}
+          disabled={loading || selected.size === 0}
+          className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600
+            hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold rounded-xl
+            shadow-sm shadow-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+            w-full sm:w-auto self-start"
+        >
           {loading
             ? <><Loader2 size={16} className="animate-spin" /> Cargando...</>
             : <><RefreshCw size={16} /> Generar gráfica</>}
@@ -549,56 +582,53 @@ const CompareView = ({ sensorId = 's1' }) => {
         )}
       </div>
 
-      {/* ── GRÁFICA ── */}
-      {hasLoaded && (
+      {/* ── GRÁFICA (solo si hay datos cargados) ── */}
+      {hasLoaded && chartData && (
         <div className="px-6 pb-6">
           <div className="group relative bg-slate-50/50 rounded-2xl border border-slate-100 p-4">
 
             {/* Controles superiores */}
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-              {/* Reset zoom */}
-              <button onClick={() => chartRef.current?.resetZoom()}
+              <button
+                onClick={() => chartRef.current?.resetZoom()}
                 className="p-1.5 text-slate-400 bg-white/90 backdrop-blur border border-slate-200
                   shadow-sm hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all
                   opacity-0 group-hover:opacity-100"
-                title="Restablecer zoom">
+                title="Restablecer zoom"
+              >
                 <ZoomOut size={14} />
               </button>
 
-              {/* Descargar PNG */}
-              {chartData && (
-                <button
-                  onClick={() => downloadPNG(chartRef, chartData.datasets, startDate, endDate, sensorId, viewMode)}
-                  className="p-1.5 text-slate-400 bg-white/90 backdrop-blur border border-slate-200
-                    shadow-sm hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all
-                    opacity-0 group-hover:opacity-100"
-                  title="Descargar gráfica PNG">
-                  <Image size={14} />
-                </button>
-              )}
+              <button
+                onClick={() => downloadPNG(chartRef, chartData.datasets, chartStart, chartEnd, sensorId, chartViewMode)}
+                className="p-1.5 text-slate-400 bg-white/90 backdrop-blur border border-slate-200
+                  shadow-sm hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all
+                  opacity-0 group-hover:opacity-100"
+                title="Descargar gráfica PNG"
+              >
+                <Image size={14} />
+              </button>
 
-              {/* Descargar CSV */}
-              {chartData && (
-                <button
-                  onClick={() => exportCSV(chartData.datasets, chartData.labels, sensorId)}
-                  className="p-1.5 text-slate-400 bg-white/90 backdrop-blur border border-slate-200
-                    shadow-sm hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all
-                    opacity-0 group-hover:opacity-100"
-                  title="Exportar datos CSV">
-                  <Download size={14} />
-                </button>
-              )}
+              <button
+                onClick={() => exportCSV(chartData.datasets, chartData.labels, sensorId)}
+                className="p-1.5 text-slate-400 bg-white/90 backdrop-blur border border-slate-200
+                  shadow-sm hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all
+                  opacity-0 group-hover:opacity-100"
+                title="Exportar datos CSV"
+              >
+                <Download size={14} />
+              </button>
             </div>
 
-            {/* Info del rango */}
+            {/* Info del rango activo en la gráfica */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Rango:</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mostrando:</span>
               <span className="text-xs text-slate-600 font-medium bg-white px-2 py-0.5 rounded-lg border border-slate-200">
-                {startDate?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                {chartStart?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                 {' — '}
-                {endDate?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                {chartEnd?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
               </span>
-              {viewMode === 'normalized' && (
+              {chartViewMode === 'normalized' && (
                 <span className="text-[10px] text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg font-semibold">
                   Valores normalizados 0–100%
                 </span>
@@ -606,22 +636,13 @@ const CompareView = ({ sensorId = 's1' }) => {
             </div>
 
             {/* Chart */}
-            {chartData ? (
-              <div className={isFullscreen ? 'h-[60vh]' : 'h-80'}>
-                <Line ref={chartRef} data={chartData} options={chartOptions} />
-              </div>
-            ) : (
-              <div className="h-80 flex flex-col items-center justify-center text-slate-400
-                border border-dashed border-slate-200 rounded-xl bg-white/50">
-                <GitCompare size={32} className="mb-3 opacity-30" strokeWidth={1.5} />
-                <p className="text-sm font-medium">Sin datos en el rango seleccionado</p>
-                <p className="text-xs mt-1 text-slate-300">Prueba con un rango de tiempo más amplio</p>
-              </div>
-            )}
+            <div className={isFullscreen ? 'h-[60vh]' : 'h-80'}>
+              <Line ref={chartRef} data={chartData} options={chartOptions} />
+            </div>
           </div>
 
           {/* ── TABLA ESTADÍSTICA ── */}
-          {chartData && chartData.datasets.length > 0 && (
+          {chartData.datasets.length > 0 && (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-xs text-left">
                 <thead>
@@ -646,8 +667,10 @@ const CompareView = ({ sensorId = 's1' }) => {
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-2 pr-4">
                           <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: varCfg?.color ?? '#94a3b8' }} />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: varCfg?.color ?? '#94a3b8' }}
+                            />
                             <span className="font-medium text-slate-700">{varCfg?.label ?? ds.label}</span>
                           </div>
                         </td>
@@ -665,7 +688,7 @@ const CompareView = ({ sensorId = 's1' }) => {
         </div>
       )}
 
-      {/* Estado inicial */}
+      {/* ── Estado inicial ── */}
       {!hasLoaded && !loading && (
         <div className="px-6 pb-6">
           <div className="h-48 flex flex-col items-center justify-center text-slate-300
