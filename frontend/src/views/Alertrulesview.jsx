@@ -327,7 +327,6 @@ const AlertRulesView = ({ sensorId = 's1' }) => {
                   <th className="px-6 py-4 text-center">Condición</th>
                   <th className="px-6 py-4">Mensaje</th>
                   <th className="px-6 py-4 text-center">Nivel</th>
-                  <th className="px-6 py-4 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
