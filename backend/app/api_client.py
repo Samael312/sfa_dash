@@ -535,6 +535,17 @@ def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            # Obtener el último día con datos
+            cur.execute("""
+                SELECT MAX(timestamp) FROM sfa_readings
+                WHERE sensor_id = %s
+                  AND variable IN ('i_generada', 'i_carga')
+            """, (sensor_id,))
+            last_ts = cur.fetchone()[0]
+
+            if last_ts is None:
+                return []
+
             cur.execute("""
                 WITH gen_raw AS (
                     SELECT
@@ -551,7 +562,8 @@ def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
                     FROM sfa_readings
                     WHERE sensor_id = %s
                       AND variable  = 'i_generada'
-                      AND timestamp >= NOW() - INTERVAL '%s days'
+                      AND timestamp >= %s - make_interval(days => %s)
+                      AND timestamp <= %s
                 ),
                 gen AS (
                     SELECT day, SUM(value * delta_seconds / 3600) AS gen_ah
@@ -573,7 +585,8 @@ def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
                     FROM sfa_readings
                     WHERE sensor_id = %s
                       AND variable  = 'i_carga'
-                      AND timestamp >= NOW() - INTERVAL '%s days'
+                      AND timestamp >= %s - make_interval(days => %s)
+                      AND timestamp <= %s
                 ),
                 load AS (
                     SELECT day, SUM(value * delta_seconds / 3600) AS load_ah
@@ -587,7 +600,8 @@ def get_energy_daily(sensor_id: str, days: int = 7) -> list[dict]:
                 FROM gen g
                 FULL OUTER JOIN load l ON g.day = l.day
                 ORDER BY day ASC
-            """, (sensor_id, days, sensor_id, days))
+            """, (sensor_id, last_ts, days, last_ts,
+                  sensor_id, last_ts, days, last_ts))
 
             rows = cur.fetchall()
 
@@ -612,6 +626,18 @@ def get_energy_balance(sensor_id: str, hours: int = 24) -> dict:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            # Obtener el timestamp del último dato disponible
+            cur.execute("""
+                SELECT MAX(timestamp) FROM sfa_readings
+                WHERE sensor_id = %s
+                  AND variable IN ('i_generada', 'i_carga')
+            """, (sensor_id,))
+            last_ts = cur.fetchone()[0]
+
+            if last_ts is None:
+                return {"sensor_id": sensor_id, "hours": hours, "interval": interval, "points": []}
+
+            # Anclar la ventana al último dato en vez de NOW()
             cur.execute("""
                 SELECT
                     date_bin(%s::interval, timestamp, TIMESTAMPTZ '2001-01-01') AS bucket,
@@ -620,10 +646,11 @@ def get_energy_balance(sensor_id: str, hours: int = 24) -> dict:
                 FROM sfa_readings
                 WHERE sensor_id = %s
                   AND variable IN ('i_generada', 'i_carga')
-                  AND timestamp >= NOW() - make_interval(hours => %s)
+                  AND timestamp >= %s - make_interval(hours => %s)
+                  AND timestamp <= %s
                 GROUP BY bucket, variable
                 ORDER BY bucket ASC
-            """, (interval, sensor_id, hours))
+            """, (interval, sensor_id, last_ts, hours, last_ts))
 
             rows = cur.fetchall()
 
