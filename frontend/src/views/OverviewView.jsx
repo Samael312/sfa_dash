@@ -3,6 +3,10 @@
  * ----------------
  * Panel resumen ejecutivo.
  * SOC obtenido de /soc/current (motor Coulomb) en lugar de fórmula de voltaje.
+ *
+ * FIX: La tarjeta "Energía hoy" ahora compara la fecha del último dato
+ * con la fecha UTC actual. Si el sensor lleva días sin conectarse,
+ * los valores se muestran como "—" y aparece un badge con el último día.
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -109,7 +113,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
   const [allSensors,    setAllSensors]    = useState([]);
   const [alerts,        setAlerts]        = useState([]);
   const [energySummary, setEnergySummary] = useState(null);
-  // ── NUEVO: SOC desde el motor Coulomb ────────────────────────
   const [socData,       setSocData]       = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [isRefreshing,  setIsRefreshing]  = useState(false);
@@ -130,10 +133,9 @@ const OverviewView = ({ sensorId = 's1' }) => {
       const [snapRes, connRes, histResults, statusRes, energyRes, socRes] = await Promise.all([
         Promise.all(sensors.map(s => api.getSFALatest(s).catch(() => null))),
         api.getSensorsConnectivity(sensors).catch(() => ({ sensors: [] })),
-        Promise.all(VARIABLES.map(v => api.getSFAHistory(sensorId, v.key, 3).catch(() => null))),
+        Promise.all(VARIABLES.map(v => api.getSFAHistory(sensorId, v.key, null, null, 3).catch(() => null))),
         api.getSFAStatus(sensorId).catch(() => null),
         api.getEnergyDaily(sensorId, 1).catch(() => null),
-        // ── NUEVO: obtener SOC real del motor Coulomb ────────────
         api.getSocCurrent(sensorId).catch(() => null),
       ]);
 
@@ -149,8 +151,17 @@ const OverviewView = ({ sensorId = 's1' }) => {
 
       setConnectivity(connRes?.sensors ?? []);
       setAlerts(statusRes?.alerts ?? []);
-      setEnergySummary(energyRes?.data?.at(-1) ?? null);
-      // ── NUEVO ────────────────────────────────────────────────
+
+      // ── FIX: Energía hoy ─────────────────────────────────────
+      // Solo mostrar valores si el último día de datos coincide con hoy (UTC)
+      const lastEnergyEntry = energyRes?.data?.at(-1) ?? null;
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      setEnergySummary(
+        lastEnergyEntry
+          ? { ...lastEnergyEntry, isToday: lastEnergyEntry.day === todayUTC }
+          : null
+      );
+
       setSocData(socRes);
       setLastUpdate(new Date());
     } catch {
@@ -191,7 +202,7 @@ const OverviewView = ({ sensorId = 's1' }) => {
     if (current) prevRef.current[sensorId] = current;
   }, [current, sensorId]);
 
-  // ── SOC: prioridad al motor Coulomb, fallback a voltaje ──────
+  // ── SOC ──────────────────────────────────────────────────────
   const soc = (() => {
     if (socData?.soc_pct != null) return Math.round(socData.soc_pct);
     if (current?.v_bateria != null) {
@@ -201,7 +212,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
     return null;
   })();
 
-  // Etiqueta del método SOC para transparencia
   const socMethod = socData?.method === 'ocv_calibration' ? 'OCV'
     : socData?.method === 'coulomb_counting'               ? 'Coulomb'
     : socData?.soc_pct != null                             ? 'Motor'
@@ -305,12 +315,11 @@ const OverviewView = ({ sensorId = 's1' }) => {
       {/* BATERÍA + ENERGÍA HOY */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-        {/* SOC — ahora con método visible */}
+        {/* SOC */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Estado de carga (SOC)</p>
             <div className="flex items-center gap-2">
-              {/* Badge del método de cálculo */}
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border
                 ${socMethod === 'OCV'     ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 : socMethod === 'Coulomb' ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -332,7 +341,6 @@ const OverviewView = ({ sensorId = 's1' }) => {
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
             <Battery size={13} />
             <span>Tensión: <strong className="text-slate-700">{current?.v_bateria ?? '—'} V</strong></span>
-            {/* Horas desde calibración si disponible */}
             {socData?.hours_since_calib != null && (
               <span className="ml-auto text-[10px] text-slate-300">
                 cal. hace {socData.hours_since_calib}h
@@ -341,18 +349,40 @@ const OverviewView = ({ sensorId = 's1' }) => {
           </div>
         </div>
 
-        {/* Energía hoy */}
+        {/* Energía hoy — FIX */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Energía hoy</p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Energía hoy</p>
+            {energySummary && !energySummary.isToday && (
+              <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                Último dato: {energySummary.day}
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-3 gap-3 text-center">
             {[
-              { label: 'Generada',  value: energySummary?.gen_ah,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
-              { label: 'Consumida', value: energySummary?.load_ah, color: 'text-indigo-600',  bg: 'bg-indigo-50'  },
-              { label: 'Neto',      value: energySummary?.net_ah,  color: energySummary?.net_ah >= 0 ? 'text-amber-600' : 'text-rose-600', bg: energySummary?.net_ah >= 0 ? 'bg-amber-50' : 'bg-rose-50' },
+              {
+                label: 'Generada',
+                value: energySummary?.isToday ? energySummary?.gen_ah  : null,
+                color: 'text-emerald-600',
+                bg:    'bg-emerald-50',
+              },
+              {
+                label: 'Consumida',
+                value: energySummary?.isToday ? energySummary?.load_ah : null,
+                color: 'text-indigo-600',
+                bg:    'bg-indigo-50',
+              },
+              {
+                label: 'Neto',
+                value: energySummary?.isToday ? energySummary?.net_ah  : null,
+                color: (energySummary?.net_ah ?? 0) >= 0 ? 'text-amber-600' : 'text-rose-600',
+                bg:    (energySummary?.net_ah ?? 0) >= 0 ? 'bg-amber-50'    : 'bg-rose-50',
+              },
             ].map(item => (
               <div key={item.label} className={`${item.bg} rounded-xl p-3`}>
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{item.label}</p>
-                <p className={`text-lg font-black ${item.color}`}>
+                <p className={`text-lg font-black ${item.value != null ? item.color : 'text-slate-300'}`}>
                   {item.value != null ? `${Number(item.value).toFixed(1)}` : '—'}
                   <span className="text-[10px] font-normal ml-0.5">Ah</span>
                 </p>
@@ -361,7 +391,12 @@ const OverviewView = ({ sensorId = 's1' }) => {
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
             <Zap size={13} />
-            <span>Generando ahora: <strong className={`${(current?.i_generada ?? 0) > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>{current?.i_generada ?? '—'} A</strong></span>
+            <span>
+              Generando ahora:{' '}
+              <strong className={`${(current?.i_generada ?? 0) > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                {current?.i_generada ?? '—'} A
+              </strong>
+            </span>
           </div>
         </div>
       </div>
