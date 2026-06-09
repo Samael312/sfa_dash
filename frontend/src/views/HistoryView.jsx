@@ -1,11 +1,9 @@
 /**
  * HistoryView.jsx
  * ---------------
- * Vista de historial con dos modos accesibles por tabs:
- *  - "Variables" → gráficas individuales por variable con estadísticas
- *  - "Comparador" → CompareView: rango libre + múltiples variables en una gráfica
- *
- * NOTA: CompareView está en frontend/src/utils/CompareView.jsx
+ * FIX: Eje Y dinámico — si los datos superan el rango esperado (yMin/yMax),
+ * el eje se expande automáticamente con padding del 10%, evitando que
+ * la gráfica se desborde visualmente ante valores anómalos del sensor.
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
@@ -55,7 +53,6 @@ const COMPARE_COLORS = [
   '#0EA5E9', '#84CC16', '#EAB308',
 ];
 
-// ── Tabs ─────────────────────────────────────────────────────
 const TABS = [
   { id: 'variables', label: 'Variables',  icon: LayoutGrid  },
   { id: 'compare',   label: 'Comparador', icon: GitCompare  },
@@ -86,7 +83,7 @@ const StatsCard = ({ stats, unit, color }) => {
   );
 };
 
-// ── Export CSV por variable ───────────────────────────────────
+// ── Export CSV ────────────────────────────────────────────────
 const exportCSV = (variable, points, sensorId, hours) => {
   if (!points?.length) return;
   const header = 'timestamp,value\n';
@@ -125,6 +122,29 @@ const SensorCompareSelector = ({ allSensors, primaryId, compareIds, onChange }) 
       })}
     </div>
   );
+};
+
+// ── Helpers para rango Y dinámico ─────────────────────────────
+/**
+ * Calcula yMin/yMax para el eje, expandiendo el rango estático
+ * si los datos reales lo superan. Añade un 10% de padding.
+ */
+const calcYRange = (points, yMinStatic, yMaxStatic) => {
+  const values = points
+    .map(p => (p.value != null ? Number(p.value) : null))
+    .filter(v => v != null);
+
+  if (!values.length) return { yMin: yMinStatic, yMax: yMaxStatic };
+
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const span    = dataMax - dataMin || Math.abs(dataMax) || 1;
+  const pad     = span * 0.1;
+
+  const yMin = Math.min(yMinStatic, Math.floor(dataMin - pad));
+  const yMax = Math.max(yMaxStatic, Math.ceil(dataMax  + pad));
+
+  return { yMin, yMax };
 };
 
 // ── Componente principal ──────────────────────────────────────
@@ -211,39 +231,49 @@ const HistoryView = ({ sensorId = 's1' }) => {
     });
   }, [compareIds, sensorId, hours]);
 
-  // ── Opciones Chart.js ─────────────────────────────────────────
-  const getBaseOptions = useCallback((v) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { display: compareIds.length > 0, position: 'top' },
-      zoom: {
-        pan:  { enabled: true, mode: 'x' },
-        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+  // ── Opciones Chart.js con eje Y dinámico ──────────────────────
+  const getBaseOptions = useCallback((v, points) => {
+    // Calcular rango real expandido si los datos lo requieren
+    const { yMin, yMax } = calcYRange(points ?? [], v.yMin, v.yMax);
+
+    // Etiqueta del rango para mostrar en cabecera
+    const rangeLabel = `${yMin}–${yMax} ${v.unit}`;
+
+    return {
+      _rangeLabel: rangeLabel, // lo usamos fuera en el JSX
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: compareIds.length > 0, position: 'top' },
+        zoom: {
+          pan:  { enabled: true, mode: 'x' },
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(255,255,255,0.97)',
+          titleColor: '#64748B', bodyColor: '#0F172A',
+          borderColor: '#E2E8F0', borderWidth: 1,
+          padding: 12, cornerRadius: 12, displayColors: true,
+          boxPadding: 6, usePointStyle: true,
+        },
       },
-      tooltip: {
-        backgroundColor: 'rgba(255,255,255,0.97)',
-        titleColor: '#64748B', bodyColor: '#0F172A',
-        borderColor: '#E2E8F0', borderWidth: 1,
-        padding: 12, cornerRadius: 12, displayColors: true,
-        boxPadding: 6, usePointStyle: true,
+      scales: {
+        x: {
+          ticks:  { maxTicksLimit: 6, font: { size: 11 }, color: '#94A3B8' },
+          grid:   { display: false },
+          border: { display: false },
+        },
+        y: {
+          min: yMin,
+          max: yMax,
+          ticks:  { maxTicksLimit: 5, font: { size: 11 }, color: '#94A3B8' },
+          grid:   { color: '#F1F5F9', borderDash: [4, 4] },
+          border: { display: false },
+        },
       },
-    },
-    scales: {
-      x: {
-        ticks:  { maxTicksLimit: 6, font: { size: 11 }, color: '#94A3B8' },
-        grid:   { display: false },
-        border: { display: false },
-      },
-      y: {
-        min: v.yMin, max: v.yMax,
-        ticks:  { maxTicksLimit: 5, font: { size: 11 }, color: '#94A3B8' },
-        grid:   { color: '#F1F5F9', borderDash: [4, 4] },
-        border: { display: false },
-      },
-    },
-  }), [compareIds.length]);
+    };
+  }, [compareIds.length]);
 
   // ── Build chart data por variable ─────────────────────────────
   const buildChartData = useCallback((v) => {
@@ -284,10 +314,17 @@ const HistoryView = ({ sensorId = 's1' }) => {
     title:       v.label,
     defaultMode: 'show',
     render: () => {
+      const points   = history[v.key]?.points ?? [];
       const data     = buildChartData(v);
       const isEmpty  = !data.datasets[0]?.data?.length;
       const stats    = history[v.key]?.stats;
       const interval = history[v.key]?.interval;
+
+      // Calcular opciones + rango dinámico
+      const opts       = getBaseOptions(v, points);
+      const rangeLabel = opts._rangeLabel;
+      // Eliminar la clave auxiliar antes de pasar a Chart.js
+      const { _rangeLabel: _omit, ...chartOptions } = opts;
 
       return (
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all flex flex-col group">
@@ -303,7 +340,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg uppercase tracking-wider mr-2">
-                {v.yMin}–{v.yMax} {v.unit}
+                {rangeLabel}
               </span>
               <button onClick={() => chartRefs.current[v.key]?.resetZoom()}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
@@ -331,7 +368,7 @@ const HistoryView = ({ sensorId = 's1' }) => {
               <Line
                 ref={el => { chartRefs.current[v.key] = el; }}
                 data={data}
-                options={getBaseOptions(v)}
+                options={chartOptions}
               />
             )}
           </div>
